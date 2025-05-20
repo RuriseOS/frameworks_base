@@ -12870,6 +12870,12 @@ public final class Settings {
                 "navigation_mode";
 
         /**
+         * Show navigation space below IME
+         * @hide
+         */
+        public static final String NAVBAR_IME_SPACE = "navbar_ime_space";
+
+        /**
          * The value is from another(source) device's {@link #NAVIGATION_MODE} during restore.
          * It's supposed to be written only by
          * {@link com.android.providers.settings.SettingsHelper}.
