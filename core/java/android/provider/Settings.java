@@ -6752,6 +6752,13 @@ public final class Settings {
         public static final String QS_SHOW_DATA_USAGE_WINDOW = "qs_show_data_usage_window";
 
         /**
+         * Whether to show data usage in Quick Settings tiles (WiFi and Cellular)
+         * 0 = disabled, 1 = enabled
+         * @hide
+         */
+        public static final String QS_SHOW_DATA_USAGE_TILE = "qs_show_data_usage_tile";
+
+        /**
          * Keys we no longer back up under the current schema, but want to continue to
          * process when restoring historical backup datasets.
          *
