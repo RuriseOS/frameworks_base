@@ -106,10 +106,12 @@ import android.os.SystemClock;
 import android.os.SystemProperties;
 import android.os.Trace;
 import android.os.UserHandle;
+import android.provider.Settings;
 import android.util.ArrayMap;
 import android.util.ArraySet;
 import android.util.Slog;
 import android.util.SparseArray;
+import android.view.Display;
 import android.view.DisplayInfo;
 import android.view.InsetsFlags;
 import android.view.InsetsFrameProvider;
@@ -420,6 +422,8 @@ public class DisplayPolicy {
     private final ForceShowNavBarSettingsObserver mForceShowNavBarSettingsObserver;
     private boolean mForceShowNavigationBarEnabled;
 
+    private volatile boolean mGamingGestureLocked;
+
     private class PolicyHandler extends Handler {
 
         PolicyHandler(Looper looper) {
@@ -515,6 +519,9 @@ public class DisplayPolicy {
 
                 @Override
                 public void onSwipeFromTop() {
+                    if (isGamingGestureLocked()) {
+                        return;
+                    }
                     synchronized (mLock) {
                         requestTransientBars(mTopGestureHost,
                                 getControllableInsets(mTopGestureHost).top > 0);
@@ -523,6 +530,9 @@ public class DisplayPolicy {
 
                 @Override
                 public void onSwipeFromBottom() {
+                    if (isGamingGestureLocked()) {
+                        return;
+                    }
                     synchronized (mLock) {
                         requestTransientBars(mBottomGestureHost,
                                 getControllableInsets(mBottomGestureHost).bottom > 0);
@@ -530,12 +540,18 @@ public class DisplayPolicy {
                 }
 
                 private boolean allowsSideSwipe(Region excludedRegion) {
+                    if (isGamingGestureLocked()) {
+                        return false;
+                    }
                     return mNavigationBarAlwaysShowOnSideGesture
                             && !mSystemGestures.currentGestureStartedInRegion(excludedRegion);
                 }
 
                 @Override
                 public void onSwipeFromRight() {
+                    if (isGamingGestureLocked()) {
+                        return;
+                    }
                     final Region excludedRegion = Region.obtain();
                     synchronized (mLock) {
                         mDisplayContent.calculateSystemGestureExclusion(
@@ -551,6 +567,9 @@ public class DisplayPolicy {
 
                 @Override
                 public void onSwipeFromLeft() {
+                    if (isGamingGestureLocked()) {
+                        return;
+                    }
                     final Region excludedRegion = Region.obtain();
                     synchronized (mLock) {
                         mDisplayContent.calculateSystemGestureExclusion(
@@ -741,6 +760,20 @@ public class DisplayPolicy {
         mForceShowNavBarSettingsObserver.setOnChangeRunnable(this::updateForceShowNavBarSettings);
         mForceShowNavigationBarEnabled = mForceShowNavBarSettingsObserver.isEnabled();
         mHandler.post(mForceShowNavBarSettingsObserver::register);
+
+        ContentResolver resolver = mContext.getContentResolver();
+        mGamingGestureLocked = Settings.Secure.getIntForUser(resolver,
+                "ax_gaming_gesture_lock", 0, UserHandle.USER_CURRENT) == 1;
+        ContentObserver gestureLockObserver = new ContentObserver(mHandler) {
+            @Override
+            public void onChange(boolean selfChange) {
+                mGamingGestureLocked = Settings.Secure.getIntForUser(
+                        mContext.getContentResolver(),
+                        "ax_gaming_gesture_lock", 0, UserHandle.USER_CURRENT) == 1;
+            }
+        };
+        resolver.registerContentObserver(Settings.Secure.getUriFor(
+                "ax_gaming_gesture_lock"), false, gestureLockObserver, UserHandle.USER_ALL);
     }
 
     private void updateForceShowNavBarSettings() {
@@ -813,6 +846,10 @@ public class DisplayPolicy {
 
     public int getDockMode() {
         return mDockMode;
+    }
+
+    public boolean isGamingGestureLocked() {
+        return mGamingGestureLocked;
     }
 
     public boolean hasNavigationBar() {
@@ -2414,6 +2451,9 @@ public class DisplayPolicy {
     @VisibleForTesting
     void requestTransientBars(WindowState swipeTarget, boolean isGestureOnSystemBar) {
         if (CLIENT_TRANSIENT) {
+            return;
+        }
+        if (isGamingGestureLocked()) {
             return;
         }
         if (swipeTarget == null || !mService.mPolicy.isUserSetupComplete()) {
