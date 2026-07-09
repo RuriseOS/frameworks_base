@@ -3,11 +3,17 @@
      SPDX-FileCopyrightText: 2016-2026 crDroid Android Project
      SPDX-License-Identifier: Apache-2.0
 -->
-<resources xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">
+<resources>
 
-    <!-- Data usage info in QS footer -->
-    <string name="usage_data">used today</string>
-    <string name="usage_data_weekly">used this week</string>
+    <!-- Data usage readout in the QS footer (amount + network name) -->
+    <string name="usage_data_today">%1$s used today (%2$s)</string>
+    <string name="usage_data_week">%1$s used this week (%2$s)</string>
+
+    <!-- Data usage readout in the WiFi/Cellular QS tiles -->
+    <string name="usage_data_tile_today">%1$s used today</string>
+
+    <!-- Fallback network names when the SSID or carrier name is unavailable -->
     <string name="usage_data_default_suffix">Data</string>
     <string name="usage_wifi_default_suffix">Wi-Fi</string>
+
 </resources>

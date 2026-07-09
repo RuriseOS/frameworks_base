@@ -79,6 +79,7 @@ import com.android.systemui.brightness.ui.compose.ContainerColors
 import com.android.systemui.compose.modifiers.sysuiResTag
 import com.android.systemui.dagger.SysUISingleton
 import com.android.systemui.development.ui.compose.BuildNumber
+import com.android.systemui.development.ui.compose.rememberShowDataUsage
 import com.android.systemui.development.ui.viewmodel.BuildNumberViewModel
 import com.android.systemui.lifecycle.rememberViewModel
 import com.android.systemui.media.remedia.ui.compose.Media
@@ -466,7 +467,9 @@ private fun ContentScope.QuickSettingsLayout(
                     buildNumberViewModelFactory.create()
                 }
 
-            if (buildNumberViewModel.buildNumber != null) {
+            // Show the footer when the build number is available (developer options on) OR when
+            // the data usage readout is enabled, since that reuses this same node.
+            if (rememberShowDataUsage() || buildNumberViewModel.buildNumber != null) {
                 VerticalSeparator(QuickSettingsShade.Dimensions.ShortPadding)
                 BuildNumber(
                     viewModel = buildNumberViewModel,
