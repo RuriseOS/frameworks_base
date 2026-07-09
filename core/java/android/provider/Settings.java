@@ -6759,6 +6759,14 @@ public final class Settings {
         public static final String QS_SHOW_DATA_USAGE_TILE = "qs_show_data_usage_tile";
 
         /**
+         * Whether to hide the build number in the QS footer even when developer
+         * options are enabled. Does not affect the data usage readout.
+         * 0 = show, 1 = hide
+         * @hide
+         */
+        public static final String QS_HIDE_BUILD_NUMBER = "qs_hide_build_number";
+
+        /**
          * Keys we no longer back up under the current schema, but want to continue to
          * process when restoring historical backup datasets.
          *
