@@ -85,9 +85,11 @@ private const val WINDOW_WEEKLY = 1
 private const val QUERY_THROTTLE_MS = 30_000L
 
 /**
- * QS footer readout: shows daily/weekly data usage when [Settings.System.QS_SHOW_DATA_USAGE] is
- * enabled, otherwise the build number (only non-null when developer options are enabled). The
- * toggle is observed, so flipping it takes effect without restarting SystemUI.
+ * QS footer readout. Priority:
+ *   1. data usage, when [Settings.System.QS_SHOW_DATA_USAGE] is on;
+ *   2. nothing, when [Settings.System.QS_HIDE_BUILD_NUMBER] is on;
+ *   3. otherwise the build number (only non-null when developer options are enabled).
+ * All toggles are observed, so flipping them takes effect without restarting SystemUI.
  */
 @Composable
 fun BuildNumber(
@@ -95,12 +97,17 @@ fun BuildNumber(
     modifier: Modifier = Modifier,
     textColor: Color = MaterialTheme.colorScheme.onSurface,
 ) {
-    if (rememberShowDataUsage()) {
-        DataUsageText(modifier, textColor)
-    } else {
-        val viewModel =
-            rememberViewModel(traceName = "BuildNumber") { viewModelFactory.create() }
-        BuildNumberText(viewModel, modifier, textColor)
+    // Evaluate both toggles unconditionally (stable composable calls) before branching.
+    val showDataUsage = rememberShowDataUsage()
+    val hideBuildNumber = rememberHideBuildNumber()
+    when {
+        showDataUsage -> DataUsageText(modifier, textColor)
+        hideBuildNumber -> Spacer(modifier)
+        else -> {
+            val viewModel =
+                rememberViewModel(traceName = "BuildNumber") { viewModelFactory.create() }
+            BuildNumberText(viewModel, modifier, textColor)
+        }
     }
 }
 
@@ -110,10 +117,12 @@ fun BuildNumber(
     modifier: Modifier = Modifier,
     textColor: Color = MaterialTheme.colorScheme.onSurface,
 ) {
-    if (rememberShowDataUsage()) {
-        DataUsageText(modifier, textColor)
-    } else {
-        BuildNumberText(viewModel, modifier, textColor)
+    val showDataUsage = rememberShowDataUsage()
+    val hideBuildNumber = rememberHideBuildNumber()
+    when {
+        showDataUsage -> DataUsageText(modifier, textColor)
+        hideBuildNumber -> Spacer(modifier)
+        else -> BuildNumberText(viewModel, modifier, textColor)
     }
 }
 
@@ -127,6 +136,14 @@ fun BuildNumber(
 @Composable
 fun rememberShowDataUsage(): Boolean =
     rememberSystemBoolean(Settings.System.QS_SHOW_DATA_USAGE, default = false)
+
+/**
+ * Whether the build number should be hidden in the QS footer even when developer options are on.
+ * Does not affect the data usage readout. Observed for live updates.
+ */
+@Composable
+fun rememberHideBuildNumber(): Boolean =
+    rememberSystemBoolean(Settings.System.QS_HIDE_BUILD_NUMBER, default = false)
 
 /** Reads a Settings.System int-as-boolean for the current user and keeps it live via an observer. */
 @Composable

@@ -79,6 +79,7 @@ import com.android.systemui.brightness.ui.compose.ContainerColors
 import com.android.systemui.compose.modifiers.sysuiResTag
 import com.android.systemui.dagger.SysUISingleton
 import com.android.systemui.development.ui.compose.BuildNumber
+import com.android.systemui.development.ui.compose.rememberHideBuildNumber
 import com.android.systemui.development.ui.compose.rememberShowDataUsage
 import com.android.systemui.development.ui.viewmodel.BuildNumberViewModel
 import com.android.systemui.lifecycle.rememberViewModel
@@ -467,9 +468,16 @@ private fun ContentScope.QuickSettingsLayout(
                     buildNumberViewModelFactory.create()
                 }
 
-            // Show the footer when the build number is available (developer options on) OR when
-            // the data usage readout is enabled, since that reuses this same node.
-            if (rememberShowDataUsage() || buildNumberViewModel.buildNumber != null) {
+            // Show the footer when data usage is enabled, or when the build number is available
+            // (developer options on) and not explicitly hidden. Both reuse this same node.
+            // Evaluate both toggles unconditionally before branching to avoid conditional
+            // composable calls.
+            val showDataUsage = rememberShowDataUsage()
+            val hideBuildNumber = rememberHideBuildNumber()
+            if (
+                showDataUsage ||
+                    (buildNumberViewModel.buildNumber != null && !hideBuildNumber)
+            ) {
                 VerticalSeparator(QuickSettingsShade.Dimensions.ShortPadding)
                 BuildNumber(
                     viewModel = buildNumberViewModel,
