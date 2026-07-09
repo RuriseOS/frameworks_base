@@ -17,22 +17,15 @@
 package com.android.systemui.qs.tiles
 
 import android.content.Intent
-import android.database.ContentObserver
-import android.net.Uri
 import android.os.Handler
 import android.os.Looper
-import android.os.UserHandle
-import android.provider.Settings
 import android.service.quicksettings.Tile
 import android.text.TextUtils
-import android.text.format.Formatter
-import android.util.Log
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.coroutineScope
 import androidx.lifecycle.repeatOnLifecycle
 import com.android.internal.logging.MetricsLogger
 import com.android.settingslib.graph.SignalDrawable
-import com.android.settingslib.net.DataUsageController
 import com.android.systemui.animation.Expandable
 import com.android.systemui.common.shared.model.Icon
 import com.android.systemui.dagger.qualifiers.Background
@@ -51,7 +44,6 @@ import com.android.systemui.qs.tiles.impl.wifi.domain.interactor.WifiTileDataInt
 import com.android.systemui.qs.tiles.impl.wifi.domain.interactor.WifiTileUserActionInteractor
 import com.android.systemui.qs.tiles.impl.wifi.domain.model.WifiTileModel
 import com.android.systemui.qs.tiles.impl.wifi.ui.mapper.WifiTileMapper
-import com.android.systemui.res.R
 import com.android.systemui.statusbar.pipeline.shared.ui.model.SignalIcon
 import javax.inject.Inject
 import kotlinx.coroutines.launch
@@ -88,10 +80,8 @@ constructor(
 
     private lateinit var tileState: QSTileState
     private val config = qsTileConfigProvider.getConfig(TILE_SPEC)
-    
-    private val dataController: DataUsageController = DataUsageController(mContext)
-    private var showDataUsage: Boolean = false
-    private val settingsObserver: SettingsObserver = SettingsObserver(mainHandler)
+
+    private val dataUsageHelper = TileDataUsageHelper(mContext, mainHandler, TAG) { refreshState() }
 
     init {
         lifecycle.coroutineScope.launch {
@@ -99,46 +89,15 @@ constructor(
                 dataInteractor.tileData().collect { refreshState(it) }
             }
         }
-        updateDataUsageSetting()
     }
 
     override fun handleSetListening(listening: Boolean) {
         super.handleSetListening(listening)
         if (listening) {
-            settingsObserver.observe()
+            dataUsageHelper.onStartListening()
+            refreshState()
         } else {
-            settingsObserver.unobserve()
-        }
-    }
-
-    private fun updateDataUsageSetting() {
-        showDataUsage = Settings.System.getIntForUser(
-            mContext.contentResolver,
-            Settings.System.QS_SHOW_DATA_USAGE_TILE,
-            1,
-            UserHandle.USER_CURRENT
-        ) == 1
-    }
-
-    private fun getFormattedWifiDataUsage(): String {
-        return try {
-            var info = dataController.getWifiDailyDataUsageInfo(true)
-            if (info == null) {
-                info = dataController.getWifiDailyDataUsageInfo(false)
-            }
-            if (info != null && info.usageLevel >= 0) {
-                val formattedSize = Formatter.formatFileSize(
-                    mContext, 
-                    info.usageLevel,
-                    Formatter.FLAG_IEC_UNITS
-                )
-                "$formattedSize ${mContext.getString(R.string.usage_data)}"
-            } else {
-                ""
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to get WiFi data usage", e)
-            ""
+            dataUsageHelper.onStopListening()
         }
     }
 
@@ -168,21 +127,21 @@ constructor(
                 (tileState.icon as? Icon.Loaded)?.resId?.let { resId ->
                     maybeLoadResourceIcon(resId)
                 } ?: SignalIcon(SignalDrawable.getState(0, 4, false))
-            label = tileState.label
-            
-            secondaryLabel = if (this.state == Tile.STATE_ACTIVE) {
-                if (showDataUsage) {
-                    val dataUsage = getFormattedWifiDataUsage()
-                    if (!TextUtils.isEmpty(dataUsage)) {
-                        dataUsage
-                    } else {
-                        tileState.secondaryLabel
-                    }
+
+            if (this.state == Tile.STATE_ACTIVE && dataUsageHelper.showDataUsage) {
+                val dataUsage = dataUsageHelper.formattedUsage {
+                    getWifiDailyDataUsageInfo(true) ?: getWifiDailyDataUsageInfo(false)
+                }
+                if (!TextUtils.isEmpty(dataUsage)) {
+                    label = tileState.secondaryLabel
+                    secondaryLabel = dataUsage
                 } else {
-                    tileState.secondaryLabel
+                    label = tileState.label
+                    secondaryLabel = tileState.secondaryLabel
                 }
             } else {
-                null
+                label = tileState.label
+                secondaryLabel = if (this.state == Tile.STATE_ACTIVE) tileState.secondaryLabel else null
             }
             
             contentDescription = tileState.contentDescription
@@ -196,26 +155,6 @@ constructor(
 
     override fun isAvailable(): Boolean {
         return dataInteractor.isAvailable()
-    }
-
-    private inner class SettingsObserver(handler: Handler) : ContentObserver(handler) {
-        fun observe() {
-            mContext.contentResolver.registerContentObserver(
-                Settings.System.getUriFor(Settings.System.QS_SHOW_DATA_USAGE_TILE),
-                false,
-                this,
-                UserHandle.USER_ALL
-            )
-        }
-
-        fun unobserve() {
-            mContext.contentResolver.unregisterContentObserver(this)
-        }
-
-        override fun onChange(selfChange: Boolean, uri: Uri?) {
-            updateDataUsageSetting()
-            refreshState()
-        }
     }
 
     companion object {
