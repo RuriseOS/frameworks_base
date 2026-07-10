@@ -63,6 +63,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.onLongClick
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.LifecycleStartEffect
 import com.android.settingslib.net.DataUsageController
 import com.android.systemui.communal.ui.compose.extensions.detectLongPressGesture
 import com.android.systemui.development.ui.viewmodel.BuildNumberViewModel
@@ -71,6 +72,7 @@ import com.android.systemui.qs.ui.compose.borderOnFocus
 import com.android.systemui.res.R
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.withContext
 
@@ -83,6 +85,14 @@ private const val WINDOW_WEEKLY = 1
  * user actions (tap to switch window, double tap to switch SIM) bypass the throttle.
  */
 private const val QUERY_THROTTLE_MS = 30_000L
+
+/**
+ * How often to refresh the readout while the footer is visible. A stable connection fires no
+ * network events, so without this the figure would freeze; this also retries if the first query
+ * after boot ran before usage stats were ready. Only ticks while the footer is composed
+ * (i.e. QS open), so it costs nothing in the background.
+ */
+private const val REFRESH_INTERVAL_MS = 60_000L
 
 /**
  * QS footer readout. Priority:
@@ -249,6 +259,10 @@ private fun DataUsageText(
 
     var usageText by remember { mutableStateOf<String?>(null) }
 
+    // Toggled by the lifecycle below; gates the marquee so it re-scrolls each time QS becomes
+    // visible, matching the tiles (whose marquee is likewise driven by their listening state).
+    var footerVisible by remember { mutableStateOf(false) }
+
     var usageWindow by rememberSaveable {
         mutableIntStateOf(
             Settings.System.getIntForUser(
@@ -282,12 +296,17 @@ private fun DataUsageText(
         updateRequests.tryEmit(force)
     }
 
-    /** True when the active network is validated wifi, regardless of SSID visibility. */
+    /**
+     * True when the default (active) network's transport is wifi, i.e. traffic is currently going
+     * over wifi. Deliberately does NOT require NET_CAPABILITY_VALIDATED: right after boot wifi is
+     * already the default network but validation can lag, which would otherwise misreport mobile
+     * usage until it completes. Checking the default network's transport is the right signal for
+     * "which usage to show" and matches the QS tiles.
+     */
     fun isOnWifi(): Boolean {
         val cm = connectivityManager ?: return false
         val caps = cm.getNetworkCapabilities(cm.activeNetwork ?: return false) ?: return false
-        return caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) &&
-            caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+        return caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)
     }
 
     fun sanitizeSsid(raw: String?): String? {
@@ -374,6 +393,10 @@ private fun DataUsageText(
     LaunchedEffect(Unit) {
         var lastQueryTime = 0L
         updateRequests.collect { force ->
+            // Skip entirely while QS is not visible. This composable can be retained across QS
+            // close, so without this the periodic loop and network callbacks would keep querying
+            // NetworkStats in the background. On re-open, LifecycleStartEffect forces a refresh.
+            if (!footerVisible) return@collect
             val now = SystemClock.elapsedRealtime()
             if (!force && now - lastQueryTime < QUERY_THROTTLE_MS) return@collect
             lastQueryTime = now
@@ -394,6 +417,26 @@ private fun DataUsageText(
     // Refresh immediately on first composition and whenever the user switches the usage window
     // or the displayed SIM.
     LaunchedEffect(usageWindow, displaySubId) { requestUpdate(force = true) }
+
+    // Periodic refresh while visible so the figure doesn't freeze on a stable connection and
+    // recovers if the first post-boot query ran before stats were ready. Throttled by the
+    // collector above; the loop ends when the footer leaves composition (QS closed).
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(REFRESH_INTERVAL_MS)
+            requestUpdate()
+        }
+    }
+
+    // Force a fresh query each time QS becomes visible again, and drive footerVisible so the
+    // marquee re-scrolls on each open. This composable can be retained across QS open/close, so
+    // without this the reading lagged behind the tiles (which re-query on every open via
+    // handleSetListening) and the marquee only re-scrolled when the value changed.
+    LifecycleStartEffect(Unit) {
+        footerVisible = true
+        requestUpdate(force = true)
+        onStopOrDispose { footerVisible = false }
+    }
 
     DisposableEffect(Unit) {
         // Wifi enable/disable and (dis)connect events; deliberately NOT listening to
@@ -529,8 +572,14 @@ private fun DataUsageText(
             }
         }
 
+    // Gate the single-pass scroll on visibility (like the tiles): when QS becomes visible the
+    // iterations flip 0 -> 1 and the marquee replays from the start, so it re-scrolls on each
+    // open rather than only when the value changes.
     val marquee = if (textToShow.isNotEmpty()) {
-        base.basicMarquee(iterations = 1, initialDelayMillis = 2000)
+        base.basicMarquee(
+            iterations = if (footerVisible) 1 else 0,
+            initialDelayMillis = 2000,
+        )
     } else {
         base
     }
