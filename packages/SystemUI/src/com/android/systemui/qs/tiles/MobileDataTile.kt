@@ -130,7 +130,8 @@ constructor(
                         DrawableIcon(signalDrawableInstance)
                     }
             label = tileState.label
-            
+
+            dataUsageHelper.noteActive(this.state == Tile.STATE_ACTIVE)
             val dataUsage = if (dataUsageHelper.showDataUsage && this.state == Tile.STATE_ACTIVE) {
                 val dataSubId = SubscriptionManager.getDefaultDataSubscriptionId()
                 dataUsageHelper.formattedUsage(key = dataSubId) {

@@ -54,6 +54,7 @@ class TileDataUsageHelper(
     @Volatile private var cachedText: String? = null
     @Volatile private var cachedKey = 0
     @Volatile private var cacheTimestamp = 0L
+    @Volatile private var wasActive = false
 
     fun onStartListening() {
         // Re-fetch immediately: if the setting was toggled while the tile wasn't listening,
@@ -76,6 +77,17 @@ class TileDataUsageHelper(
         showDataUsage = readSetting()
         invalidate()
         onSettingChanged()
+    }
+
+    /**
+     * Tell the helper whether the tile is currently active. The cache exists to coalesce frequent
+     * refreshes while active; a transition from inactive to active (e.g. mobile data just turned
+     * on) is a meaningful event, so drop the cache to force a fresh query. Call on every state
+     * update, active or not.
+     */
+    fun noteActive(active: Boolean) {
+        if (active && !wasActive) invalidate()
+        wasActive = active
     }
 
     /**

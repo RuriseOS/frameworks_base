@@ -128,6 +128,7 @@ constructor(
                     maybeLoadResourceIcon(resId)
                 } ?: SignalIcon(SignalDrawable.getState(0, 4, false))
 
+            dataUsageHelper.noteActive(this.state == Tile.STATE_ACTIVE)
             if (this.state == Tile.STATE_ACTIVE && dataUsageHelper.showDataUsage) {
                 val dataUsage = dataUsageHelper.formattedUsage {
                     getWifiDailyDataUsageInfo(true) ?: getWifiDailyDataUsageInfo(false)
