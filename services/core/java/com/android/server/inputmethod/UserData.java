@@ -174,6 +174,11 @@ final class UserData {
     @NonNull
     final AtomicBoolean mImeDrawsNavBar = new AtomicBoolean();
 
+    /**
+     * {@code true} when the user has enabled the IME navigation bar button space.
+     */
+    @NonNull
+    final AtomicBoolean mImeNavBarEnabled = new AtomicBoolean(true);
 
     /**
      * {@code true} if the user storage is considered to be unlocked.

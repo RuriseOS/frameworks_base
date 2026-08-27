@@ -56,6 +56,7 @@ import static com.android.systemui.util.Utils.isGesturalModeOnDefaultDisplay;
 
 import android.annotation.IdRes;
 import android.annotation.NonNull;
+import android.annotation.UserIdInt;
 import android.app.ActivityTaskManager;
 import android.app.IActivityTaskManager;
 import android.app.StatusBarManager;
@@ -75,7 +76,6 @@ import android.net.Uri;
 import android.os.Binder;
 import android.os.Bundle;
 import android.os.Handler;
-import android.os.Looper;
 import android.os.RemoteException;
 import android.os.Trace;
 import android.os.UserHandle;
@@ -176,6 +176,7 @@ import com.android.wm.shell.shared.handles.RegionSamplingHelper;
 import dagger.Lazy;
 
 import java.io.PrintWriter;
+import java.util.Collection;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
@@ -700,24 +701,31 @@ public class NavigationBar extends ViewController<NavigationBarView> implements 
         mView.setRotationPolicyWrapper(rotationPolicyWrapper);
         mNavBarMode = mNavigationModeController.addListener(mModeChangedListener);
 
-        mNavBarObserver = new ContentObserver(new Handler(Looper.getMainLooper())) {
+        mNavBarObserver = new ContentObserver(mHandler) {
             @Override
-            public void onChange(boolean selfChange, Uri uri) {
-                super.onChange(selfChange, uri);
-                if (mView != null) {
-                    mView.setNavBarMode(mNavBarMode, mNavigationModeController.getImeDrawsImeNavBar()
-                            && getShowNavBarIme());
-
+            public void onChange(boolean selfChange, @NonNull Collection<Uri> uris, int flags,
+                    @UserIdInt int userId) {
+                if (userId == mUserTracker.getUserId()) {
+                    updateImeNavBarState();
                 }
             }
         };
     }
 
-    private boolean getShowNavBarIme() {
+    private boolean isImeNavBarEnabled() {
         return Settings.Secure.getIntForUser(
-            mContext.getContentResolver(),
-            Settings.Secure.NAVBAR_IME_SPACE, 1,
-            UserHandle.USER_CURRENT) == 1;
+                mContext.getContentResolver(),
+                Settings.Secure.NAVBAR_IME_SPACE, 1,
+                mUserTracker.getUserId()) == 1;
+    }
+
+    private void updateImeNavBarState() {
+        if (!mView.isAttachedToWindow()) {
+            return;
+        }
+        mView.setNavBarMode(mNavBarMode, mNavigationModeController.getImeDrawsImeNavBar()
+                && isImeNavBarEnabled());
+        mView.updateNavButtonIcons();
     }
 
     public NavigationBarView getView() {
@@ -1931,6 +1939,7 @@ public class NavigationBar extends ViewController<NavigationBarView> implements 
                 public void onUserChanged(int newUser, @NonNull Context userContext) {
                     // The accessibility settings may be different for the new user
                     updateAccessibilityStateFlags();
+                    updateImeNavBarState();
                 }
             };
 
@@ -2070,7 +2079,7 @@ public class NavigationBar extends ViewController<NavigationBarView> implements 
 
     private void setNavBarMode(int mode) {
         mView.setNavBarMode(mode, mNavigationModeController.getImeDrawsImeNavBar()
-                && getShowNavBarIme());
+                && isImeNavBarEnabled());
         if (isGesturalMode(mode)) {
             mRegionSamplingHelper.start(mSamplingBounds);
         } else {
