@@ -485,14 +485,23 @@ public final class InputMethodManagerService implements IInputMethodManagerImpl.
         }
 
         private void onChangeInternal(@NonNull Uri uri, @UserIdInt int userId) {
+            final Uri navBarUri = Settings.Secure.getUriFor(
+                    Settings.Secure.NAVBAR_IME_SPACE);
+            if (navBarUri.equals(uri)) {
+                // Keep every user's cached preference current. In single-user mode a setting
+                // notification can arrive after a fast user switch, at which point filtering it
+                // as a background-user update would leave stale state for the next switch back.
+                // updateSystemUiLocked() independently rejects background-user UI updates.
+                mIoHandler.post(() -> updateImeNavBarStateForUser(userId));
+                return;
+            }
+
             final Uri highTouchPollingRateUri = LineageSettings.System.getUriFor(
                     LineageSettings.System.HIGH_TOUCH_POLLING_RATE_ENABLE);
             final Uri touchSensitivityUri = LineageSettings.System.getUriFor(
                     LineageSettings.System.HIGH_TOUCH_SENSITIVITY_ENABLE);
             final Uri touchHoveringUri = LineageSettings.Secure.getUriFor(
                     LineageSettings.Secure.FEATURE_TOUCH_HOVERING);
-            final Uri navBarUri = Settings.Secure.getUriFor(
-                    Settings.Secure.NAVBAR_IME_SPACE);
             synchronized (ImfLock.class) {
                 if (!mConcurrentMultiUserModeEnabled && mCurrentImeUserId != userId) {
                     return;
@@ -503,8 +512,6 @@ public final class InputMethodManagerService implements IInputMethodManagerImpl.
                     updateTouchSensitivity();
                 } else if (touchHoveringUri.equals(uri)) {
                     updateTouchHovering();
-                } else if (navBarUri.equals(uri)) {
-                    onUpdateResourceOverlay(userId);
                 }
             }
         }
@@ -1028,7 +1035,7 @@ public final class InputMethodManagerService implements IInputMethodManagerImpl.
             // Hook up resource change first before initializeUsersAsync() starts reading the
             // seemingly initial data so that we can eliminate the race condition.
             InputMethodDrawsNavBarResourceMonitor.registerCallback(context, mService.mIoHandler,
-                    mService::onUpdateResourceOverlay);
+                    mService::updateImeNavBarStateForUser);
 
             // Also schedule user init tasks onto an I/O thread.
             initializeUsersAsync(mService.mUserManagerInternal.getUserIds());
@@ -1201,12 +1208,14 @@ public final class InputMethodManagerService implements IInputMethodManagerImpl.
                     InputMethodSettingsRepository.put(userId, settings);
 
                     final int profileParentId = userManagerInternal.getProfileParentId(userId);
-                    final boolean value =
+                    final boolean imeDrawsNavBar =
                             InputMethodDrawsNavBarResourceMonitor.evaluate(context,
                                     profileParentId);
-                    final boolean showNavBarIme = Settings.Secure.getIntForUser(
-                        context.getContentResolver(), Settings.Secure.NAVBAR_IME_SPACE, 1, userId) == 1;
-                    userData.mImeDrawsNavBar.set(value && showNavBarIme);
+                    final boolean imeNavBarEnabled = Settings.Secure.getIntForUser(
+                            context.getContentResolver(), Settings.Secure.NAVBAR_IME_SPACE, 1,
+                            userId) == 1;
+                    userData.mImeNavBarEnabled.set(imeNavBarEnabled);
+                    userData.mImeDrawsNavBar.set(imeDrawsNavBar && imeNavBarEnabled);
 
                     userData.mBackgroundLoadLatch.countDown();
                     Slog.d(TAG, "Complete initialization for user=" + userId);
@@ -2658,8 +2667,9 @@ public final class InputMethodManagerService implements IInputMethodManagerImpl.
                 .hasNavigationBar(tokenDisplayId != INVALID_DISPLAY
                         ? tokenDisplayId : DEFAULT_DISPLAY);
         final boolean canImeDrawsImeNavBar = userData.mImeDrawsNavBar.get() && hasNavigationBar;
-        final boolean shouldShowImeSwitcherWhenImeIsShown = shouldShowImeSwitcherLocked(
-                InputMethodService.IME_ACTIVE | InputMethodService.IME_VISIBLE, userId);
+        final boolean shouldShowImeSwitcherWhenImeIsShown = userData.mImeNavBarEnabled.get()
+                && shouldShowImeSwitcherLocked(
+                        InputMethodService.IME_ACTIVE | InputMethodService.IME_VISIBLE, userId);
         return (canImeDrawsImeNavBar ? InputMethodNavButtonFlags.IME_DRAWS_IME_NAV_BAR : 0)
                 | (shouldShowImeSwitcherWhenImeIsShown
                 ? InputMethodNavButtonFlags.SHOW_IME_SWITCHER_WHEN_IME_IS_SHOWN : 0);
@@ -2845,14 +2855,18 @@ public final class InputMethodManagerService implements IInputMethodManagerImpl.
             if (windowPerceptible != null && !windowPerceptible) {
                 vis &= ~InputMethodService.IME_VISIBLE;
             }
+            final boolean imeNavBarEnabled = userData.mImeNavBarEnabled.get();
             // TODO(b/305849394): Make mMenuController multi-user aware.
-            if (mMenuController.isShowing() || !Objects.equals(bindingController.getCurId(),
-                    bindingController.getSelectedMethodId())) {
+            if (!imeNavBarEnabled || mMenuController.isShowing()
+                    || !Objects.equals(bindingController.getCurId(),
+                            bindingController.getSelectedMethodId())) {
                 // When the IME switcher dialog is shown, or we are switching IMEs,
-                // the back button should be in the default state (as if the IME is not shown).
+                // or the IME navigation bar is disabled, the back button should be in the default
+                // state (as if the IME is not shown).
                 backDisposition = InputMethodService.BACK_DISPOSITION_ADJUST_NOTHING;
             }
-            final boolean needsToShowImeSwitcher = shouldShowImeSwitcherLocked(vis, userId);
+            final boolean needsToShowImeSwitcher = imeNavBarEnabled
+                    && shouldShowImeSwitcherLocked(vis, userId);
             if (mStatusBarManagerInternal != null) {
                 mStatusBarManagerInternal.setImeWindowStatus(curTokenDisplayId, vis,
                         backDisposition, needsToShowImeSwitcher);
@@ -5339,21 +5353,26 @@ public final class InputMethodManagerService implements IInputMethodManagerImpl.
     }
 
     @WorkerThread
-    private void onUpdateResourceOverlay(@UserIdInt int userId) {
+    private void updateImeNavBarStateForUser(@UserIdInt int userId) {
         final int profileParentId = mUserManagerInternal.getProfileParentId(userId);
-        final boolean value =
+        final boolean imeDrawsNavBar =
                 InputMethodDrawsNavBarResourceMonitor.evaluate(mContext, profileParentId);
         final var profileUserIds = mUserManagerInternal.getProfileIds(profileParentId, false);
-        final boolean showNavBarIme = Settings.Secure.getIntForUser(
-            mContext.getContentResolver(), Settings.Secure.NAVBAR_IME_SPACE, 1, userId) == 1;
         final ArrayList<UserData> updatedUsers = new ArrayList<>();
         for (int profileUserId : profileUserIds) {
             final var userData = getUserData(profileUserId);
-            userData.mImeDrawsNavBar.set(value && showNavBarIme);
+            final boolean imeNavBarEnabled = Settings.Secure.getIntForUser(
+                    mContext.getContentResolver(), Settings.Secure.NAVBAR_IME_SPACE, 1,
+                    profileUserId) == 1;
+            userData.mImeNavBarEnabled.set(imeNavBarEnabled);
+            userData.mImeDrawsNavBar.set(imeDrawsNavBar && imeNavBarEnabled);
             updatedUsers.add(userData);
         }
         synchronized (ImfLock.class) {
-            updatedUsers.forEach(this::sendOnNavButtonFlagsChangedLocked);
+            for (UserData userData : updatedUsers) {
+                sendOnNavButtonFlagsChangedLocked(userData);
+                updateSystemUiLocked(userData.mUserId);
+            }
         }
     }
 
@@ -6293,6 +6312,7 @@ public final class InputMethodManagerService implements IInputMethodManagerImpl.
             u.mImeBindingState.dump(p, "        ");
             p.println("      enabledSession=" + u.mEnabledSession);
             p.println("      inFullscreenMode=" + u.mInFullscreenMode);
+            p.println("      imeNavBarEnabled=" + u.mImeNavBarEnabled.get());
             p.println("      imeDrawsNavBar=" + u.mImeDrawsNavBar.get());
             p.println("      switchingController:");
             u.mSwitchingController.dump(p, "        ");
