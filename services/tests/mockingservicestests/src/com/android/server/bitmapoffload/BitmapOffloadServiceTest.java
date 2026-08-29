@@ -23,8 +23,11 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertThrows;
+import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
@@ -39,6 +42,9 @@ import android.net.Uri;
 import android.os.HandlerThread;
 import android.os.storage.StorageManager;
 import android.util.DataUnit;
+
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 import org.junit.Before;
 import org.junit.Test;
@@ -99,6 +105,21 @@ public class BitmapOffloadServiceTest {
         Uri uri = mService.mInternalService.offloadBitmap(BITMAP_SOURCE_NOTIFICATIONS, mockBitmap);
 
         assertNull(uri);
+    }
+
+    @Test
+    public void testDeleteBitmap_deletesProviderEntry() throws Exception {
+        final Uri offloadUri = ContentUris.withAppendedId(BitmapOffloadContract.CONTENT_URI, 0);
+        final CountDownLatch deleteCompleted = new CountDownLatch(1);
+        doAnswer(invocation -> {
+            deleteCompleted.countDown();
+            return 1;
+        }).when(mResolver).delete(eq(offloadUri), isNull(), isNull());
+
+        mService.mInternalService.deleteBitmap(offloadUri);
+
+        assertTrue(deleteCompleted.await(5, TimeUnit.SECONDS));
+        verify(mResolver).delete(eq(offloadUri), isNull(), isNull());
     }
 
     @Test

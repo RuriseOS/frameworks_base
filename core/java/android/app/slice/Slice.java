@@ -496,6 +496,16 @@ public final class Slice implements Parcelable {
         }
 
         /**
+         * Adds an already constructed item while preserving its exact hints and subtype.
+         *
+         * @hide
+         */
+        public Slice.Builder addItem(@NonNull SliceItem item) {
+            mItems.add(Objects.requireNonNull(item));
+            return this;
+        }
+
+        /**
          * Construct the slice.
          */
         public Slice build() {

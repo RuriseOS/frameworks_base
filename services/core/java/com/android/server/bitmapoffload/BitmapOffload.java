@@ -25,7 +25,9 @@ public final class BitmapOffload {
     @Retention(RetentionPolicy.SOURCE)
     @IntDef(prefix = "BITMAP_SOURCE_", value = {
         BITMAP_SOURCE_NOTIFICATIONS,
+        BITMAP_SOURCE_CREDENTIALS,
     })
     public @interface BitmapSource {}
     public static final int BITMAP_SOURCE_NOTIFICATIONS = 0;
+    public static final int BITMAP_SOURCE_CREDENTIALS = 1;
 }

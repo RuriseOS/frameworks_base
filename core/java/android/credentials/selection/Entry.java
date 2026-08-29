@@ -92,6 +92,24 @@ public final class Entry implements Parcelable {
         mFrameworkExtrasIntent = intent;
     }
 
+    private Entry(@NonNull Entry original, @NonNull Slice slice) {
+        mKey = original.mKey;
+        mSubkey = original.mSubkey;
+        mSlice = slice;
+        mPendingIntent = original.mPendingIntent;
+        mFrameworkExtrasIntent = original.mFrameworkExtrasIntent;
+    }
+
+    /**
+     * Returns a copy whose display slice has been replaced.
+     *
+     * @hide
+     */
+    @NonNull
+    public Entry copyWithSlice(@NonNull Slice slice) {
+        return new Entry(this, slice);
+    }
+
     /**
      * Returns the identifier of this entry that's unique within the context of the
      * CredentialManager request.

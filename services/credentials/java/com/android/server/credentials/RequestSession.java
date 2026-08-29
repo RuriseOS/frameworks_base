@@ -262,6 +262,7 @@ abstract class RequestSession<T, U, V> implements CredentialManagerUi.Credential
         logTrackOneCandidatesAndPrepareFinalPhaseLogs(apiStatus);
         mRequestSessionMetric.logApiCalledAtFinish(apiStatus);
         mProviders.clear();
+        mCredentialManagerUi.destroy();
         clearRequestSessionLocked();
     }
 
