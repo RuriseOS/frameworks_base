@@ -225,10 +225,18 @@ public class BitmapOffloadProvider extends ContentProvider {
     public int delete(@NonNull Uri uri, String selection, String[] selectionArgs) {
         enforceCallerSystem();
 
+        final BitmapEntry entry;
         synchronized (mLock) {
-            BitmapEntry entry = mEntries.remove(uri);
-            return entry != null ? 1 : 0;
+            entry = mEntries.remove(uri);
         }
+        if (entry == null) {
+            return 0;
+        }
+        final File file = new File(entry.mBitmapData.filePath());
+        if (file.exists() && !file.delete()) {
+            Slog.w(TAG, "Failed to delete bitmap file " + file);
+        }
+        return 1;
     }
 
     @Override

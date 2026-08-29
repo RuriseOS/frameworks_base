@@ -143,6 +143,24 @@ public final class AuthenticationEntry implements Parcelable {
         mFrameworkExtrasIntent = intent;
     }
 
+    private AuthenticationEntry(@NonNull AuthenticationEntry original, @NonNull Slice slice) {
+        mKey = original.mKey;
+        mSubkey = original.mSubkey;
+        mSlice = slice;
+        mStatus = original.mStatus;
+        mFrameworkExtrasIntent = original.mFrameworkExtrasIntent;
+    }
+
+    /**
+     * Returns a copy whose display slice has been replaced.
+     *
+     * @hide
+     */
+    @NonNull
+    public AuthenticationEntry copyWithSlice(@NonNull Slice slice) {
+        return new AuthenticationEntry(this, slice);
+    }
+
     /**
      * Returns the identifier of this entry that's unique within the context of the given
      * CredentialManager request.

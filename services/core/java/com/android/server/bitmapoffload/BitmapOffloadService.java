@@ -16,6 +16,8 @@
 
 package com.android.server.bitmapoffload;
 
+import static com.android.server.bitmapoffload.BitmapOffload.BITMAP_SOURCE_CREDENTIALS;
+
 import android.content.ContentResolver;
 import android.content.ContentValues;
 import android.content.Context;
@@ -60,6 +62,8 @@ public class BitmapOffloadService extends SystemService {
     public static final String TAG = "BitmapOffloader";
 
     private static final String BITMAP_DIR = "offloaded-bitmaps";
+    // For WEBP_LOSSLESS this controls compression effort, not visual quality.
+    private static final int CREDENTIALS_WEBP_COMPRESSION_EFFORT = 75;
 
     private final ContentResolver mResolver;
 
@@ -113,11 +117,14 @@ public class BitmapOffloadService extends SystemService {
     }
 
     private class BitmapOffloadRunnable implements Runnable {
+        private final @BitmapOffload.BitmapSource int mSource;
         private final String mPath;
         private final Bitmap mBitmap;
         private final Uri mUri;
 
-        BitmapOffloadRunnable(Bitmap bitmap, String path, Uri uri) {
+        BitmapOffloadRunnable(@BitmapOffload.BitmapSource int source, Bitmap bitmap, String path,
+                Uri uri) {
+            mSource = source;
             mPath = path;
             mBitmap = bitmap;
             mUri = uri;
@@ -125,12 +132,18 @@ public class BitmapOffloadService extends SystemService {
 
         private boolean compressBitmap() {
             try (FileOutputStream out = new FileOutputStream(mPath)) {
-                boolean success = mBitmap.compress(Bitmap.CompressFormat.WEBP_LOSSY, 100, out);
+                final Bitmap.CompressFormat format = mSource == BITMAP_SOURCE_CREDENTIALS
+                        ? Bitmap.CompressFormat.WEBP_LOSSLESS
+                        : Bitmap.CompressFormat.WEBP_LOSSY;
+                final int quality = mSource == BITMAP_SOURCE_CREDENTIALS
+                        ? CREDENTIALS_WEBP_COMPRESSION_EFFORT
+                        : 100;
+                boolean success = mBitmap.compress(format, quality, out);
                 if (!success) {
                     Slog.w(TAG, "Failed compressing bitmap to " + mPath);
                     return false;
                 }
-            } catch (IOException e) {
+            } catch (IOException | RuntimeException e) {
                 Slog.w(TAG, "Failed compressing bitmap to " + mPath, e);
                 return false;
             }
@@ -183,13 +196,31 @@ public class BitmapOffloadService extends SystemService {
                 if (uri != null) {
                     // Do the actual offload asynchronously
                     mOffloadThread.getThreadHandler().post(
-                            new BitmapOffloadRunnable(bitmap, path, uri));
+                            new BitmapOffloadRunnable(source, bitmap, path, uri));
                 }
 
                 return uri;
             } finally {
                 Binder.restoreCallingIdentity(token);
             }
+        }
+
+        @Override
+        public void deleteBitmap(Uri uri) {
+            if (uri == null) {
+                return;
+            }
+            // Serialize deletion after any pending compression for this bitmap.
+            mOffloadThread.getThreadHandler().post(() -> {
+                final long token = Binder.clearCallingIdentity();
+                try {
+                    mResolver.delete(uri, null, null);
+                } catch (RuntimeException e) {
+                    Slog.w(TAG, "Failed deleting offloaded bitmap " + uri, e);
+                } finally {
+                    Binder.restoreCallingIdentity(token);
+                }
+            });
         }
 
         @Override
