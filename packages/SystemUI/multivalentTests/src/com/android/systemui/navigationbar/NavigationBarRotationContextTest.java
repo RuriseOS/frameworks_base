@@ -99,6 +99,24 @@ public class NavigationBarRotationContextTest extends SysuiTestCase {
     }
 
     @Test
+    public void testOnInvalidRotationProposalClearsPendingSuggestion() {
+        mRotationButtonController.onBehaviorChanged(Display.DEFAULT_DISPLAY,
+                WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+        mRotationButtonController.onNavigationBarWindowVisibilityChange(false /* showing */);
+        mWindowRotation = DEFAULT_ROTATE + 1;
+        mRotationButtonController.onRotationProposal(DEFAULT_ROTATE, true /* isValid */);
+
+        // A temporarily unavailable button must not prevent the invalid proposal from clearing
+        // the pending suggestion.
+        doReturn(false).when(mRotationButton).acceptRotationProposal();
+        mRotationButtonController.onRotationProposal(DEFAULT_ROTATE, false /* isValid */);
+        mRotationButtonController.onNavigationBarWindowVisibilityChange(true /* showing */);
+
+        verify(mRotationButtonController, times(0)).setRotateSuggestionButtonState(
+                true /* visible */);
+    }
+
+    @Test
     public void testOnSameRotationProposal() {
         mWindowRotation = DEFAULT_ROTATE;
         mRotationButtonController.onRotationProposal(DEFAULT_ROTATE, true /* isValid */);

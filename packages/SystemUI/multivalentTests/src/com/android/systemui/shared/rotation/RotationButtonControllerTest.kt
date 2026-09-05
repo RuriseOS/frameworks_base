@@ -17,6 +17,7 @@ package com.android.systemui.shared.rotation
 
 import android.platform.test.annotations.EnableFlags
 import android.platform.test.flag.junit.SetFlagsRule
+import android.provider.Settings
 import android.testing.TestableLooper.RunWithLooper
 import android.view.Display
 import android.view.Surface
@@ -99,6 +100,28 @@ class RotationButtonControllerTest : SysuiTestCase() {
 
         verify(rotationPolicyWrapper, times(1)).setRotationAtAngleIfAllowed(any(), any())
         verify(rotationPolicyWrapper, never()).setRotationLockAtAngle(any(), any(), any())
+    }
+
+    @Test
+    fun onRotateSuggestionClick_rotationSuggestionsDisabled_doesNotRotate() {
+        Settings.Secure.putInt(
+            mContext.contentResolver,
+            Settings.Secure.SHOW_ROTATION_SUGGESTIONS,
+            Settings.Secure.SHOW_ROTATION_SUGGESTIONS_DISABLED,
+        )
+
+        try {
+            clickRotationSuggestionButton()
+
+            verify(rotationPolicyWrapper, never()).setRotationAtAngleIfAllowed(any(), any())
+            verify(rotationPolicyWrapper, never()).setRotationLockAtAngle(any(), any(), any())
+        } finally {
+            Settings.Secure.putInt(
+                mContext.contentResolver,
+                Settings.Secure.SHOW_ROTATION_SUGGESTIONS,
+                Settings.Secure.SHOW_ROTATION_SUGGESTIONS_ENABLED,
+            )
+        }
     }
 
     @Test

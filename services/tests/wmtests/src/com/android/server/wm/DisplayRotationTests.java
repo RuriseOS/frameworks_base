@@ -888,6 +888,34 @@ public class DisplayRotationTests {
     }
 
     @Test
+    public void disablingRotationSuggestions_dismissesCurrentSuggestion() throws Exception {
+        mBuilder.build();
+        clearInvocations(mMockStatusBarManagerInternal);
+
+        Settings.Secure.putInt(mMockResolver, Settings.Secure.SHOW_ROTATION_SUGGESTIONS,
+                Settings.Secure.SHOW_ROTATION_SUGGESTIONS_DISABLED);
+        mShowRotationSuggestionsObserver.onChange(false);
+
+        verify(mMockStatusBarManagerInternal).onProposedRotationChanged(DEFAULT_DISPLAY,
+                mTarget.getRotation(), false);
+    }
+
+    @Test
+    public void setRotationAtAngleIfAllowed_rotationSuggestionsDisabled_doesNotRotate()
+            throws Exception {
+        mBuilder.build();
+        configureDisplayRotation(SCREEN_ORIENTATION_PORTRAIT, false, false);
+        freezeRotation(Surface.ROTATION_0);
+        Settings.Secure.putInt(mMockResolver, Settings.Secure.SHOW_ROTATION_SUGGESTIONS,
+                Settings.Secure.SHOW_ROTATION_SUGGESTIONS_DISABLED);
+        mShowRotationSuggestionsObserver.onChange(false);
+
+        setRotationAtAngleIfAllowed(Surface.ROTATION_90);
+
+        assertEquals(Surface.ROTATION_0, mTarget.getUserRotation());
+    }
+
+    @Test
     public void testNotifiesChoiceWhenSensorUpdates_immersiveApp() throws Exception {
         mDisplayRotationImmersiveAppCompatPolicyMock = mock(
                 DisplayRotationImmersiveAppCompatPolicy.class);

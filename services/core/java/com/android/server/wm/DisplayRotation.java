@@ -1388,6 +1388,11 @@ public class DisplayRotation {
     }
 
     private boolean isRotationChoiceAllowed(@Surface.Rotation final int proposedRotation) {
+        if (mShowRotationSuggestions
+                != Settings.Secure.SHOW_ROTATION_SUGGESTIONS_ENABLED) {
+            return false;
+        }
+
         final boolean isRotationLockEnforced = mCompatPolicyForImmersiveApps != null
                 && mCompatPolicyForImmersiveApps.isRotationLockEnforced(proposedRotation);
 
@@ -1509,6 +1514,8 @@ public class DisplayRotation {
     private boolean updateSettings() {
         final ContentResolver resolver = mContext.getContentResolver();
         boolean shouldUpdateRotation = false;
+        boolean shouldDismissRotationSuggestion = false;
+        @Surface.Rotation int rotationToDismiss = Surface.ROTATION_0;
 
         synchronized (mLock) {
             boolean shouldUpdateOrientationListener = false;
@@ -1522,6 +1529,12 @@ public class DisplayRotation {
             if (mShowRotationSuggestions != showRotationSuggestions) {
                 mShowRotationSuggestions = showRotationSuggestions;
                 shouldUpdateOrientationListener = true;
+                if (showRotationSuggestions
+                        == Settings.Secure.SHOW_ROTATION_SUGGESTIONS_DISABLED) {
+                    mRotationChoiceShownToUserForConfirmation = ROTATION_UNDEFINED;
+                    shouldDismissRotationSuggestion = true;
+                    rotationToDismiss = mRotation;
+                }
             }
 
             // Configure rotation lock.
@@ -1561,6 +1574,10 @@ public class DisplayRotation {
                 mCameraRotationMode = cameraRotationMode;
                 shouldUpdateRotation = true;
             }
+        }
+
+        if (shouldDismissRotationSuggestion) {
+            sendProposedRotationChangeToStatusBarInternal(rotationToDismiss, false);
         }
 
         return shouldUpdateRotation;

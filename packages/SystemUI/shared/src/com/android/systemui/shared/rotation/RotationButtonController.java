@@ -45,6 +45,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.os.RemoteException;
 import android.os.SystemProperties;
+import android.os.UserHandle;
 import android.provider.Settings;
 import android.util.Log;
 import android.view.HapticFeedbackConstants;
@@ -482,6 +483,17 @@ public class RotationButtonController {
             return;
         }
 
+        // Invalid proposals must always dismiss both visible and pending suggestions. In
+        // particular, don't let acceptRotationProposal() prevent a pending suggestion from being
+        // cleared when its view is temporarily unavailable.
+        if (!isValid) {
+            mPendingRotationSuggestion = false;
+            mMainThreadHandler.removeCallbacks(mCancelPendingRotationProposal);
+            mMainThreadHandler.removeCallbacks(mRemoveRotationProposal);
+            setRotateSuggestionButtonState(false /* visible */);
+            return;
+        }
+
         boolean isUserSetupComplete = Settings.Secure.getInt(mContext.getContentResolver(),
                 Settings.Secure.USER_SETUP_COMPLETE, 0) != 0;
         if (!isUserSetupComplete && OEM_DISALLOW_ROTATION_IN_SUW) {
@@ -495,14 +507,6 @@ public class RotationButtonController {
         }
 
         if (!mHomeRotationEnabled && mIsRecentsAnimationRunning) {
-            return;
-        }
-
-        // This method will be called on rotation suggestion changes even if the proposed rotation
-        // is not valid for the top app. Use invalid rotation choices as a signal to remove the
-        // rotate button if shown.
-        if (!isValid) {
-            setRotateSuggestionButtonState(false /* visible */);
             return;
         }
 
@@ -661,6 +665,17 @@ public class RotationButtonController {
     }
 
     private void onRotateSuggestionClick(View v) {
+        // The setting may have changed while the button was visible or fading out. Check it at
+        // click time as well so the legacy rotation path cannot accept a stale suggestion.
+        if (Settings.Secure.getIntForUser(mContext.getContentResolver(),
+                Settings.Secure.SHOW_ROTATION_SUGGESTIONS,
+                Settings.Secure.SHOW_ROTATION_SUGGESTIONS_ENABLED,
+                UserHandle.USER_CURRENT)
+                != Settings.Secure.SHOW_ROTATION_SUGGESTIONS_ENABLED) {
+            setRotateSuggestionButtonState(false /* visible */, true /* force */);
+            return;
+        }
+
         mUiEventLogger.log(RotationButtonEvent.ROTATION_SUGGESTION_ACCEPTED);
         incrementNumAcceptedRotationSuggestionsIfNeeded();
         setRotationForSuggestionIfAllowed(RotationPolicyUtil.isRotationLocked(mContext),
@@ -695,6 +710,8 @@ public class RotationButtonController {
 
     private void onRotationSuggestionsDisabled() {
         // Immediately hide the rotate button and clear any planned removal
+        mPendingRotationSuggestion = false;
+        mMainThreadHandler.removeCallbacks(mCancelPendingRotationProposal);
         setRotateSuggestionButtonState(false /* visible */, true /* force */);
         mMainThreadHandler.removeCallbacks(mRemoveRotationProposal);
     }
