@@ -25,6 +25,7 @@ import android.annotation.SystemApi;
 import android.annotation.SystemService;
 import android.annotation.TestApi;
 import android.content.Context;
+import android.os.ParcelFileDescriptor;
 import android.os.RemoteException;
 import android.text.FontConfig;
 
@@ -298,6 +299,86 @@ public class FontManager {
         }
         try {
             return mIFontManager.updateFontFamily(requests, baseVersion);
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    /**
+     * Returns the device-wide font library and boot-active/pending selections.
+     * Restricted to the system user with UPDATE_FONTS. Changes require a reboot.
+     * @hide
+     */
+    @RequiresPermission(android.Manifest.permission.UPDATE_FONTS)
+    public @NonNull CustomFontConfig getCustomFontConfig() {
+        try {
+            return mIFontManager.getCustomFontConfig();
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    /**
+     * Imports a bounded regular file without changing the selected font. The caller owns its FD.
+     * Restricted to the system user with UPDATE_FONTS. Changes require a reboot.
+     * @hide
+     */
+    @RequiresPermission(android.Manifest.permission.UPDATE_FONTS)
+    public @NonNull CustomFontInfo importCustomFont(@NonNull ParcelFileDescriptor font) {
+        try {
+            return mIFontManager.importCustomFont(font);
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    /**
+     * Selects a library entry for the next boot; empty ID restores the ROM defaults.
+     * Restricted to the system user with UPDATE_FONTS. Changes require a reboot.
+     * @hide
+     */
+    @RequiresPermission(android.Manifest.permission.UPDATE_FONTS)
+    public void selectCustomFont(@NonNull String id) {
+        try {
+            mIFontManager.selectCustomFont(id);
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    /**
+     * Removes an inactive, unselected imported entry. Files are reclaimed on the next boot.
+     * Restricted to the system user with UPDATE_FONTS. Changes require a reboot.
+     * @hide
+     */
+    @RequiresPermission(android.Manifest.permission.UPDATE_FONTS)
+    public void deleteCustomFont(@NonNull String id) {
+        try {
+            mIFontManager.deleteCustomFont(id);
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    /**
+     * Opens an imported entry for preview. The caller must close the returned descriptor.
+     * Restricted to the system user with UPDATE_FONTS. Changes require a reboot.
+     * @hide
+     */
+    @RequiresPermission(android.Manifest.permission.UPDATE_FONTS)
+    public @NonNull ParcelFileDescriptor openCustomFont(@NonNull String id) {
+        try {
+            return mIFontManager.openCustomFont(id);
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    /** Returns the candidate configuration for preview without changing the selection. @hide */
+    @RequiresPermission(android.Manifest.permission.UPDATE_FONTS)
+    public @NonNull FontConfig getCustomFontPreviewConfig(@NonNull String id) {
+        try {
+            return mIFontManager.getCustomFontPreviewConfig(id);
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }

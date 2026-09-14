@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copyright (C) 2026 The RuriseOS Project
+     SPDX-License-Identifier: Apache-2.0 -->
+<resources>
+    <!-- Only families present in the device font configuration are offered.
+         Products may extend this list with installed UI font families. -->
+    <string-array name="config_customSystemFontFamilies" translatable="false">
+        <item>google-sans-flex</item>
+        <item>sans-serif</item>
+        <item>sans-serif-condensed</item>
+        <item>sans-serif-rounded</item>
+        <item>serif</item>
+        <item>casual</item>
+        <item>cursive</item>
+    </string-array>
+    <!-- System UI typography roles in the current product font configuration. These are
+         targets, not additional picker entries. Monospace, emoji and clock faces stay separate. -->
+    <string-array name="config_customSystemFontTargets" translatable="false">
+        <item>google-sans</item>
+        <item>google-sans-flex</item>
+        <item>variable-display-large</item>
+        <item>variable-display-medium</item>
+        <item>variable-display-small</item>
+        <item>variable-headline-large</item>
+        <item>variable-headline-medium</item>
+        <item>variable-headline-small</item>
+        <item>variable-title-large</item>
+        <item>variable-title-medium</item>
+        <item>variable-title-small</item>
+        <item>variable-label-large</item>
+        <item>variable-label-medium</item>
+        <item>variable-label-small</item>
+        <item>variable-body-large</item>
+        <item>variable-body-medium</item>
+        <item>variable-body-small</item>
+        <item>variable-display-large-emphasized</item>
+        <item>variable-display-medium-emphasized</item>
+        <item>variable-display-small-emphasized</item>
+        <item>variable-headline-large-emphasized</item>
+        <item>variable-headline-medium-emphasized</item>
+        <item>variable-headline-small-emphasized</item>
+        <item>variable-title-large-emphasized</item>
+        <item>variable-title-medium-emphasized</item>
+        <item>variable-title-small-emphasized</item>
+        <item>variable-label-large-emphasized</item>
+        <item>variable-label-medium-emphasized</item>
+        <item>variable-label-small-emphasized</item>
+        <item>variable-body-large-emphasized</item>
+        <item>variable-body-medium-emphasized</item>
+        <item>variable-body-small-emphasized</item>
+        <item>google-sans-medium</item>
+        <item>google-sans-bold</item>
+        <item>google-sans-text</item>
+    </string-array>
+</resources>

@@ -2515,6 +2515,8 @@
 
   <java-symbol type="dimen" name="config_mediaMetadataBitmapMaxSize" />
   <java-symbol type="array" name="config_fontManagerServiceCerts" />
+  <java-symbol type="array" name="config_customSystemFontFamilies" />
+  <java-symbol type="array" name="config_customSystemFontTargets" />
 
     <!-- From SystemUI -->
   <java-symbol type="anim" name="push_down_in" />
@@ -4266,6 +4268,7 @@
   <java-symbol type="string" name="config_headlineFontFamily" />
   <java-symbol type="string" name="config_headlineFontFamilyMedium" />
   <java-symbol type="string" name="config_bodyFontFamily" />
+  <java-symbol type="string" name="config_bodyFontFamilyMedium" />
 
 
   <java-symbol type="integer" name="config_pressedStateDurationMillis" />

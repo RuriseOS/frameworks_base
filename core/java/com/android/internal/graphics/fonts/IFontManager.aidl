@@ -18,6 +18,8 @@ package com.android.internal.graphics.fonts;
 
 import android.os.ParcelFileDescriptor;
 import android.graphics.fonts.FontUpdateRequest;
+import android.graphics.fonts.CustomFontConfig;
+import android.graphics.fonts.CustomFontInfo;
 import android.text.FontConfig;
 
 import java.util.List;
@@ -32,4 +34,11 @@ interface IFontManager {
     FontConfig getFontConfig();
 
     int updateFontFamily(in List<FontUpdateRequest> request, int baseVersion);
+
+    CustomFontConfig getCustomFontConfig();
+    CustomFontInfo importCustomFont(in ParcelFileDescriptor font);
+    void selectCustomFont(String id);
+    void deleteCustomFont(String id);
+    ParcelFileDescriptor openCustomFont(String id);
+    FontConfig getCustomFontPreviewConfig(String id);
 }

@@ -22,15 +22,20 @@ import android.annotation.Nullable;
 import android.annotation.RequiresPermission;
 import android.content.Context;
 import android.graphics.Typeface;
+import android.graphics.fonts.CustomFontConfig;
+import android.graphics.fonts.CustomFontInfo;
 import android.graphics.fonts.FontFamily;
 import android.graphics.fonts.FontManager;
 import android.graphics.fonts.FontUpdateRequest;
 import android.graphics.fonts.SystemFonts;
+import android.os.Binder;
 import android.os.Build;
 import android.os.ParcelFileDescriptor;
 import android.os.ResultReceiver;
+import android.os.ServiceSpecificException;
 import android.os.SharedMemory;
 import android.os.ShellCallback;
+import android.os.UserHandle;
 import android.system.ErrnoException;
 import android.text.FontConfig;
 import android.util.AndroidException;
@@ -59,6 +64,8 @@ import java.io.PrintWriter;
 import java.nio.ByteBuffer;
 import java.nio.DirectByteBuffer;
 import java.nio.NioUtils;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -165,6 +172,11 @@ public final class FontManagerService extends IFontManager.Stub {
 
         @Override
         public void onBootPhase(int phase) {
+            if (phase == SystemService.PHASE_BOOT_COMPLETED) {
+                synchronized (mService.mUpdatableFontDirLock) {
+                    mService.mCustomFontStore.bootCompleted();
+                }
+            }
             final int latestFontLoadBootPhase =
                     (Flags.completeFontLoadInSystemServicesReady())
                             // Complete font load in the phase before PHASE_SYSTEM_SERVICES_READY
@@ -221,6 +233,11 @@ public final class FontManagerService extends IFontManager.Stub {
 
     private final boolean mIsSafeMode;
 
+    private final CustomFontStore mCustomFontStore;
+    private final CompletableFuture<Void> mServiceStarted;
+    @GuardedBy("mUpdatableFontDirLock")
+    private boolean mCustomFontsLoaded;
+
     private final Object mUpdatableFontDirLock = new Object();
 
     private String mDebugCertFilePath = null;
@@ -245,17 +262,21 @@ public final class FontManagerService extends IFontManager.Stub {
         }
         mContext = context;
         mIsSafeMode = safeMode;
+        mServiceStarted = serviceStarted;
+        mCustomFontStore = new CustomFontStore(new File("/data/fonts/custom"), safeMode,
+                VerityUtils.isFsVeritySupported());
 
         if (Flags.useOptimizedBoottimeFontLoading()) {
             Slog.i(TAG, "Using optimized boot-time font loading.");
             SystemServerInitThreadPool.submit(() -> {
                 initialize();
 
-                // Set system font map only if there is updatable font directory.
-                // If there is no updatable font directory, `initialize` will have already loaded
-                // the system font map, so there's no need to set the system font map again here.
+                // The preinstalled-only path already loads the system map in initialize().
+                // Updated/custom maps, including recovery from a custom map, need deserialization.
                 synchronized (mUpdatableFontDirLock) {
-                    if  (mUpdatableFontDir != null) {
+                    if (mUpdatableFontDir != null
+                            || !mCustomFontStore.activeId().isEmpty()
+                            || mCustomFontStore.wasRecovered()) {
                         setSystemFontMap();
                     }
                 }
@@ -309,8 +330,12 @@ public final class FontManagerService extends IFontManager.Stub {
 
     private void initialize() {
         synchronized (mUpdatableFontDirLock) {
+            if (!mCustomFontsLoaded) {
+                mCustomFontStore.load();
+                mCustomFontsLoaded = true;
+            }
             mUpdatableFontDir = createUpdatableFontDir();
-            if (mUpdatableFontDir == null) {
+            if (mUpdatableFontDir == null && mCustomFontStore.activeId().isEmpty()) {
                 if (Flags.useOptimizedBoottimeFontLoading()) {
                     // If fs-verity is not supported, load preinstalled system font map and use it
                     // for all apps.
@@ -319,7 +344,7 @@ public final class FontManagerService extends IFontManager.Stub {
                 setSerializedFontMap(serializeSystemServerFontMap());
                 return;
             }
-            mUpdatableFontDir.loadFontFileMap();
+            if (mUpdatableFontDir != null) mUpdatableFontDir.loadFontFileMap();
             updateSerializedFontMap();
         }
     }
@@ -389,6 +414,9 @@ public final class FontManagerService extends IFontManager.Stub {
     public void dump(@NonNull FileDescriptor fd, @NonNull PrintWriter writer,
             @Nullable String[] args) {
         if (!DumpUtils.checkDumpPermission(mContext, TAG, writer)) return;
+        synchronized (mUpdatableFontDirLock) {
+            mCustomFontStore.dump(writer);
+        }
         new FontManagerShellCommand(this).dumpAll(new IndentingPrintWriter(writer, "  "));
     }
 
@@ -407,10 +435,151 @@ public final class FontManagerService extends IFontManager.Stub {
      */
     public @NonNull FontConfig getSystemFontConfig() {
         synchronized (mUpdatableFontDirLock) {
-            if (mUpdatableFontDir == null) {
-                return SystemFonts.getSystemPreinstalledFontConfig();
+            FontConfig base = getBaseFontConfig();
+            try {
+                return customFontConfig(base, mCustomFontStore.activeId());
+            } catch (IOException | RuntimeException e) {
+                Slog.e(TAG, "Cannot load selected system font; using ROM defaults", e);
+                mCustomFontStore.recover();
+                return base;
             }
-            return mUpdatableFontDir.getSystemFontConfig();
+        }
+    }
+
+    @GuardedBy("mUpdatableFontDirLock")
+    private FontConfig getBaseFontConfig() {
+        return mUpdatableFontDir == null ? SystemFonts.getSystemPreinstalledFontConfig()
+                : mUpdatableFontDir.getSystemFontConfig();
+    }
+
+    private String[] builtInFontFamilies() {
+        return mContext.getResources().getStringArray(R.array.config_customSystemFontFamilies);
+    }
+
+    private FontConfig customFontConfig(FontConfig base, String id) throws IOException {
+        List<String> targets = new ArrayList<>(Arrays.asList(mContext.getResources()
+                .getStringArray(R.array.config_customSystemFontTargets)));
+        targets.add(mContext.getString(R.string.config_bodyFontFamily));
+        targets.add(mContext.getString(R.string.config_bodyFontFamilyMedium));
+        targets.add(mContext.getString(R.string.config_headlineFontFamily));
+        targets.add(mContext.getString(R.string.config_headlineFontFamilyMedium));
+        return CustomFontConfigBuilder.build(base, id, mCustomFontStore, builtInFontFamilies(),
+                targets.toArray(new String[0]));
+    }
+
+    private void enforceCustomFontAccess() {
+        mContext.enforceCallingPermission(Manifest.permission.UPDATE_FONTS,
+                "UPDATE_FONTS permission required");
+        if (UserHandle.getCallingUserId() != UserHandle.USER_SYSTEM) {
+            throw new SecurityException("System fonts are managed by the system user");
+        }
+        mServiceStarted.join();
+    }
+
+    @Override
+    @RequiresPermission(Manifest.permission.UPDATE_FONTS)
+    public CustomFontConfig getCustomFontConfig() {
+        enforceCustomFontAccess();
+        synchronized (mUpdatableFontDirLock) {
+            return mCustomFontStore.snapshot(CustomFontConfigBuilder.builtIns(
+                    getBaseFontConfig(), builtInFontFamilies()));
+        }
+    }
+
+    @Override
+    @RequiresPermission(Manifest.permission.UPDATE_FONTS)
+    public CustomFontInfo importCustomFont(ParcelFileDescriptor font) {
+        // Close the Binder-owned descriptor even on permission or argument failure.
+        try (ParcelFileDescriptor owned = font) {
+            enforceCustomFontAccess();
+            Objects.requireNonNull(owned);
+            final long token = Binder.clearCallingIdentity();
+            try {
+                synchronized (mUpdatableFontDirLock) {
+                    return mCustomFontStore.importFont(owned);
+                }
+            } finally {
+                Binder.restoreCallingIdentity(token);
+            }
+        } catch (IOException e) {
+            throw customFontError(e);
+        }
+    }
+
+    @Override
+    @RequiresPermission(Manifest.permission.UPDATE_FONTS)
+    public void selectCustomFont(String id) {
+        enforceCustomFontAccess();
+        Objects.requireNonNull(id);
+        final long token = Binder.clearCallingIdentity();
+        try {
+            synchronized (mUpdatableFontDirLock) {
+                // Validate the entire candidate map before persisting a next-boot selection.
+                // It is deliberately not published to currently running processes.
+                SharedMemory candidate = serializeFontMap(customFontConfig(getBaseFontConfig(), id));
+                if (candidate == null) throw new IOException("Cannot serialize selected font");
+                candidate.close();
+                mCustomFontStore.select(id);
+            }
+        } catch (IOException e) {
+            throw customFontError(e);
+        } finally {
+            Binder.restoreCallingIdentity(token);
+        }
+    }
+
+    @Override
+    @RequiresPermission(Manifest.permission.UPDATE_FONTS)
+    public void deleteCustomFont(String id) {
+        enforceCustomFontAccess();
+        final long token = Binder.clearCallingIdentity();
+        try {
+            synchronized (mUpdatableFontDirLock) {
+                mCustomFontStore.delete(id);
+            }
+        } catch (IOException e) {
+            throw customFontError(e);
+        } finally {
+            Binder.restoreCallingIdentity(token);
+        }
+    }
+
+    @Override
+    @RequiresPermission(Manifest.permission.UPDATE_FONTS)
+    public ParcelFileDescriptor openCustomFont(String id) {
+        enforceCustomFontAccess();
+        final long token = Binder.clearCallingIdentity();
+        try {
+            synchronized (mUpdatableFontDirLock) {
+                return mCustomFontStore.open(id);
+            }
+        } catch (IOException e) {
+            throw customFontError(e);
+        } finally {
+            Binder.restoreCallingIdentity(token);
+        }
+    }
+
+    private static ServiceSpecificException customFontError(IOException exception) {
+        Slog.w(TAG, "Custom font operation failed", exception);
+        return new ServiceSpecificException(FontManager.RESULT_ERROR_INVALID_FONT_FILE,
+                exception.getMessage());
+    }
+
+    @Override
+    @RequiresPermission(Manifest.permission.UPDATE_FONTS)
+    public FontConfig getCustomFontPreviewConfig(String id) {
+        enforceCustomFontAccess();
+        Objects.requireNonNull(id);
+        final long token = Binder.clearCallingIdentity();
+        try {
+            synchronized (mUpdatableFontDirLock) {
+                return customFontConfig(getBaseFontConfig(), id);
+            }
+        } catch (IOException e) {
+            throw customFontError(e);
+        } finally {
+            Binder.restoreCallingIdentity(token);
         }
     }
 
@@ -419,6 +588,10 @@ public final class FontManagerService extends IFontManager.Stub {
      */
     private void updateSerializedFontMap() {
         SharedMemory serializedFontMap = serializeFontMap(getSystemFontConfig());
+        if (serializedFontMap == null && !mCustomFontStore.activeId().isEmpty()) {
+            mCustomFontStore.recover();
+            serializedFontMap = serializeFontMap(getBaseFontConfig());
+        }
         if (serializedFontMap == null) {
             // Fallback to the preloaded config.
             serializedFontMap = serializeSystemServerFontMap();
@@ -435,7 +608,7 @@ public final class FontManagerService extends IFontManager.Stub {
             final Map<String, Typeface> typefaceMap =
                     SystemFonts.buildSystemTypefaces(fontConfig, fallback);
             return Typeface.serializeFontMap(typefaceMap);
-        } catch (IOException | ErrnoException e) {
+        } catch (IOException | ErrnoException | RuntimeException e) {
             Slog.w(TAG, "Failed to serialize updatable font map. "
                     + "Retrying with system image fonts.", e);
             return null;
