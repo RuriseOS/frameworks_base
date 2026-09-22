@@ -66,18 +66,7 @@ final class CustomFontConfigBuilder {
 
     static FontConfig prepend(FontConfig base, List<FontConfig.FontFamily> selected,
             String[] uiFamilies) {
-        Map<String, String> aliases = new LinkedHashMap<>();
-        for (FontConfig.Alias alias : base.getAliases()) {
-            aliases.put(alias.getName(), alias.getOriginal());
-        }
-        Set<String> targets = new HashSet<>();
-        targets.add("sans-serif");
-        for (String uiFamily : uiFamilies) {
-            String name = uiFamily;
-            Set<String> visited = new HashSet<>();
-            while (aliases.containsKey(name) && visited.add(name)) name = aliases.get(name);
-            if (name != null && !name.isEmpty() && !protectedFamily(name)) targets.add(name);
-        }
+        Set<String> targets = targetRoots(base, uiFamilies);
         List<FontConfig.NamedFamilyList> named = new ArrayList<>();
         List<FontConfig.Alias> resultAliases = new ArrayList<>(base.getAliases());
         List<FontConfig.Alias> roleAliases = new ArrayList<>();
@@ -116,6 +105,37 @@ final class CustomFontConfigBuilder {
         return new FontConfig(base.getFontFamilies(), resultAliases, named,
                 base.getLocaleFallbackCustomizations(), base.getLastModifiedTimeMillis(),
                 base.getConfigVersion());
+    }
+
+    private static Set<String> targetRoots(FontConfig base, String[] uiFamilies) {
+        Map<String, String> aliases = new LinkedHashMap<>();
+        for (FontConfig.Alias alias : base.getAliases()) {
+            aliases.put(alias.getName(), alias.getOriginal());
+        }
+        Set<String> targets = new HashSet<>();
+        targets.add("sans-serif");
+        for (String uiFamily : uiFamilies) {
+            String name = uiFamily;
+            Set<String> visited = new HashSet<>();
+            while (aliases.containsKey(name) && visited.add(name)) name = aliases.get(name);
+            if (name != null && !name.isEmpty() && !protectedFamily(name)) targets.add(name);
+        }
+        return targets;
+    }
+
+    static Set<String> targetFamilies(FontConfig base, String[] uiFamilies) {
+        Set<String> targets = targetRoots(base, uiFamilies);
+        // Include aliases of targeted families, while retaining protected family names.
+        boolean changed;
+        do {
+            changed = false;
+            for (FontConfig.Alias alias : base.getAliases()) {
+                if (targets.contains(alias.getOriginal()) && !protectedFamily(alias.getName())) {
+                    changed |= targets.add(alias.getName());
+                }
+            }
+        } while (changed);
+        return targets;
     }
 
     private static List<FontConfig.NamedFamilyList> effectiveFamilies(FontConfig base) {

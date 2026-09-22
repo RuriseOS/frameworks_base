@@ -136,6 +136,8 @@ final class CustomFontStore {
 
     String activeId() { return mActive; }
 
+    String selectedId() { return mSelected; }
+
     boolean wasRecovered() { return mRecovered; }
 
     void dump(PrintWriter writer) {

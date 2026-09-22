@@ -20,6 +20,7 @@ import android.os.ParcelFileDescriptor;
 import android.graphics.fonts.FontUpdateRequest;
 import android.graphics.fonts.CustomFontConfig;
 import android.graphics.fonts.CustomFontInfo;
+import android.graphics.fonts.CustomFontRuntimeConfig;
 import android.text.FontConfig;
 
 import java.util.List;
@@ -41,4 +42,5 @@ interface IFontManager {
     void deleteCustomFont(String id);
     ParcelFileDescriptor openCustomFont(String id);
     FontConfig getCustomFontPreviewConfig(String id);
+    CustomFontRuntimeConfig getCustomFontRuntimeConfig();
 }

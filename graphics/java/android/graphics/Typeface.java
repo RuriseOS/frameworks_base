@@ -238,6 +238,29 @@ public class Typeface {
 
     private final @Nullable String mSystemFontFamilyName;
 
+    // Provenance is established only by the boot map, not by an arbitrary map used for preview.
+    private boolean mIsSystemFont;
+    // Snapshot-derived faces must not enter the process-wide, native-pointer-keyed style caches.
+    private boolean mIsFontSnapshot;
+
+    /** Whether this face follows a boot system family, rather than an app/preview font. @hide */
+    public boolean isSystemFontForRuntime() {
+        if (mPendingTypeface != null) {
+            Typeface pending = mPendingTypeface.get();
+            return pending != null && pending.isSystemFontForRuntime();
+        }
+        return mIsSystemFont;
+    }
+
+    /** Builds an owned face for a UI snapshot without retaining it in global caches. @hide */
+    public static Typeface createForFontSnapshot(Typeface base, int weight, boolean italic) {
+        Preconditions.checkArgumentInRange(weight, 0, 1000, "weight");
+        Typeface result = new Typeface(nativeCreateFromTypefaceWithExactStyle(
+                base.getNativeInstance(), weight, italic), base.getSystemFontFamilyName());
+        result.mIsFontSnapshot = true;
+        return result;
+    }
+
     private final @Nullable Runnable mCleaner;
 
     /**
@@ -1031,6 +1054,12 @@ public class Typeface {
         }
 
         final long ni = family.getNativeInstance();
+        if (family.mIsFontSnapshot) {
+            Typeface result = new Typeface(nativeCreateFromTypeface(ni, style),
+                    family.getSystemFontFamilyName());
+            result.mIsFontSnapshot = true;
+            return result;
+        }
 
         Typeface typeface;
         synchronized (sStyledCacheLock) {
@@ -1048,6 +1077,7 @@ public class Typeface {
 
             typeface = new Typeface(nativeCreateFromTypeface(ni, style),
                     family.getSystemFontFamilyName());
+            typeface.mIsSystemFont = family.isSystemFontForRuntime();
             styles.put(style, typeface);
         }
         return typeface;
@@ -1099,6 +1129,7 @@ public class Typeface {
 
     private static @NonNull Typeface createWeightStyle(@NonNull Typeface base,
             @IntRange(from = 1, to = 1000) int weight, boolean italic) {
+        if (base.mIsFontSnapshot) return createForFontSnapshot(base, weight, italic);
         final int key = (weight << 1) | (italic ? 1 : 0);
 
         Typeface typeface;
@@ -1118,6 +1149,7 @@ public class Typeface {
                     nativeCreateFromTypefaceWithExactStyle(base.getNativeInstance(), weight,
                             italic),
                     base.getSystemFontFamilyName());
+            typeface.mIsSystemFont = base.isSystemFontForRuntime();
             innerCache.put(key, typeface);
         }
         return typeface;
@@ -1142,6 +1174,14 @@ public class Typeface {
      */
     public static Typeface createFromTypefaceWithVariation(@Nullable Typeface family,
             @NonNull List<FontVariationAxis> axes) {
+        // Variation faces retain their ordinary native ownership, without pinning old snapshots.
+        if (family != null && family.mIsFontSnapshot) {
+            final Typeface base = family.mDerivedFrom == null ? family : family.mDerivedFrom;
+            Typeface result = new Typeface(nativeCreateFromTypefaceWithVariation(
+                    base.getNativeInstance(), axes), base.getSystemFontFamilyName(), base);
+            result.mIsFontSnapshot = true;
+            return result;
+        }
         if (Flags.typefaceCacheForVarSettings()) {
             final Typeface target = (family == null) ? Typeface.DEFAULT : family;
             final Typeface base = (target.mDerivedFrom == null) ? target : target.mDerivedFrom;
@@ -1590,6 +1630,9 @@ public class Typeface {
         synchronized (SYSTEM_FONT_MAP_LOCK) {
             sSystemFontMap.clear();
             sSystemFontMap.putAll(systemFontMap);
+            for (Typeface typeface : sSystemFontMap.values()) {
+                typeface.mIsSystemFont = true;
+            }
 
             // We can't assume DEFAULT_FAMILY available on Roboletric.
             if (sSystemFontMap.containsKey(DEFAULT_FAMILY)) {

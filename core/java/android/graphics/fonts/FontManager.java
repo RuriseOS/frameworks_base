@@ -318,6 +318,22 @@ public class FontManager {
         }
     }
 
+    /** Protected notification; receivers fetch a coherent snapshot rather than trusting extras.
+     * @hide */
+    public static final String ACTION_CUSTOM_FONT_CHANGED =
+            "android.graphics.fonts.action.CUSTOM_FONT_CHANGED";
+
+    /** Returns the latest selection for opted-in UI clients; does not replace the boot map.
+     * @hide */
+    @RequiresPermission(android.Manifest.permission.UPDATE_FONTS)
+    public @NonNull CustomFontRuntimeConfig getCustomFontRuntimeConfig() {
+        try {
+            return mIFontManager.getCustomFontRuntimeConfig();
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
     /**
      * Imports a bounded regular file without changing the selected font. The caller owns its FD.
      * Restricted to the system user with UPDATE_FONTS. Changes require a reboot.
@@ -333,8 +349,9 @@ public class FontManager {
     }
 
     /**
-     * Selects a library entry for the next boot; empty ID restores the ROM defaults.
-     * Restricted to the system user with UPDATE_FONTS. Changes require a reboot.
+     * Selects a library entry for the next boot and notifies opted-in UI clients.
+     * Empty ID restores the ROM defaults. Full-device application still requires a reboot.
+     * Restricted to the system user with UPDATE_FONTS.
      * @hide
      */
     @RequiresPermission(android.Manifest.permission.UPDATE_FONTS)

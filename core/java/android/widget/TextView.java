@@ -93,6 +93,7 @@ import android.graphics.Typeface;
 import android.graphics.drawable.Drawable;
 import android.graphics.fonts.FontStyle;
 import android.graphics.fonts.FontVariationAxis;
+import android.graphics.fonts.SystemFontRuntime;
 import android.graphics.text.LineBreakConfig;
 import android.icu.text.DecimalFormatSymbols;
 import android.os.AsyncTask;
@@ -126,6 +127,7 @@ import android.text.SegmentFinder;
 import android.text.Selection;
 import android.text.SpanWatcher;
 import android.text.Spannable;
+import android.text.SpannableString;
 import android.text.SpannableStringBuilder;
 import android.text.Spanned;
 import android.text.SpannedString;
@@ -873,6 +875,9 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
     // more bold.
     private int mFontWeightAdjustment;
     private Typeface mOriginalTypeface;
+    // Retain effective requested axes when a temporary runtime font does not support them.
+    private String mRuntimeFontVariationSettings;
+    private boolean mUsesSystemFontRuntime;
 
     // True if setKeyListener() has been explicitly called
     private boolean mListenerChanged = false;
@@ -4857,6 +4862,9 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
                 tf = Typeface.create(tf, newWeight, italic);
             }
         }
+        Typeface resolved = SystemFontRuntime.resolve(tf);
+        mUsesSystemFontRuntime = resolved != tf;
+        tf = resolved;
         if (mTextPaint.getTypeface() != tf) {
             mTextPaint.setTypeface(tf);
 
@@ -5587,6 +5595,7 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
             effective = mTextPaint.setFontVariationSettings(fontVariationSettings);
         }
 
+        mRuntimeFontVariationSettings = mTextPaint.getFontVariationSettings();
         if (effective && mLayout != null) {
             nullLayouts();
             requestLayout();
@@ -8851,9 +8860,33 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
         return true;
     }
 
+    /** Re-resolve the original request, preserving accessibility weight and app-owned fonts.
+     * @hide */
+    public final void onSystemFontRuntimeChanged() {
+        if (!mUsesSystemFontRuntime
+                && SystemFontRuntime.resolve(mOriginalTypeface) == mOriginalTypeface) return;
+        Typeface previous = mTextPaint.getTypeface();
+        String axes = mRuntimeFontVariationSettings != null
+                ? mRuntimeFontVariationSettings : mTextPaint.getFontVariationSettings();
+        setTypeface(mOriginalTypeface);
+        if (previous != mTextPaint.getTypeface()) {
+            if (axes != null) {
+                // Paint skips equal setting strings, so clear before applying to the new face.
+                mTextPaint.setFontVariationSettings(null);
+                mTextPaint.setFontVariationSettings(axes);
+                mRuntimeFontVariationSettings = axes;
+            }
+            if (mPrecomputed != null) {
+                // Keep text/spans but discard measurements made with the previous font.
+                setText(new SpannableString(mText), mBufferType);
+            }
+        }
+    }
+
     @Override
     protected void onAttachedToWindow() {
         super.onAttachedToWindow();
+        SystemFontRuntime.attach(this);
 
         if (mEditor != null) mEditor.onAttachedToWindow();
 
@@ -8866,6 +8899,7 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
     /** @hide */
     @Override
     protected void onDetachedFromWindowInternal() {
+        SystemFontRuntime.detach(this);
         if (mPreDrawRegistered) {
             getViewTreeObserver().removeOnPreDrawListener(this);
             mPreDrawListenerDetached = true;

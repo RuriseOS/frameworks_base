@@ -21,9 +21,11 @@ import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.RequiresPermission;
 import android.content.Context;
+import android.content.Intent;
 import android.graphics.Typeface;
 import android.graphics.fonts.CustomFontConfig;
 import android.graphics.fonts.CustomFontInfo;
+import android.graphics.fonts.CustomFontRuntimeConfig;
 import android.graphics.fonts.FontFamily;
 import android.graphics.fonts.FontManager;
 import android.graphics.fonts.FontUpdateRequest;
@@ -238,6 +240,12 @@ public final class FontManagerService extends IFontManager.Stub {
     @GuardedBy("mUpdatableFontDirLock")
     private boolean mCustomFontsLoaded;
 
+    // Separate from the boot map: only explicitly opted-in UI clients consume these snapshots.
+    @GuardedBy("mUpdatableFontDirLock")
+    private long mRuntimeGeneration = 1;
+    @GuardedBy("mUpdatableFontDirLock")
+    private CustomFontRuntimeConfig mRuntimeConfig;
+
     private final Object mUpdatableFontDirLock = new Object();
 
     private String mDebugCertFilePath = null;
@@ -378,6 +386,7 @@ public final class FontManagerService extends IFontManager.Stub {
             mUpdatableFontDir.update(requests);
             updateSerializedFontMap();
         }
+        notifyCustomFontChanged();
     }
 
     /**
@@ -416,6 +425,8 @@ public final class FontManagerService extends IFontManager.Stub {
         if (!DumpUtils.checkDumpPermission(mContext, TAG, writer)) return;
         synchronized (mUpdatableFontDirLock) {
             mCustomFontStore.dump(writer);
+            writer.println("  UI runtime generation=" + mRuntimeGeneration + " selection="
+                    + (mRuntimeConfig == null ? "<not requested>" : mRuntimeConfig.getSelectedId()));
         }
         new FontManagerShellCommand(this).dumpAll(new IndentingPrintWriter(writer, "  "));
     }
@@ -456,15 +467,19 @@ public final class FontManagerService extends IFontManager.Stub {
         return mContext.getResources().getStringArray(R.array.config_customSystemFontFamilies);
     }
 
-    private FontConfig customFontConfig(FontConfig base, String id) throws IOException {
+    private String[] customFontTargets() {
         List<String> targets = new ArrayList<>(Arrays.asList(mContext.getResources()
                 .getStringArray(R.array.config_customSystemFontTargets)));
         targets.add(mContext.getString(R.string.config_bodyFontFamily));
         targets.add(mContext.getString(R.string.config_bodyFontFamilyMedium));
         targets.add(mContext.getString(R.string.config_headlineFontFamily));
         targets.add(mContext.getString(R.string.config_headlineFontFamilyMedium));
+        return targets.toArray(new String[0]);
+    }
+
+    private FontConfig customFontConfig(FontConfig base, String id) throws IOException {
         return CustomFontConfigBuilder.build(base, id, mCustomFontStore, builtInFontFamilies(),
-                targets.toArray(new String[0]));
+                customFontTargets());
     }
 
     private void enforceCustomFontAccess() {
@@ -483,6 +498,43 @@ public final class FontManagerService extends IFontManager.Stub {
         synchronized (mUpdatableFontDirLock) {
             return mCustomFontStore.snapshot(CustomFontConfigBuilder.builtIns(
                     getBaseFontConfig(), builtInFontFamilies()));
+        }
+    }
+
+    @Override
+    @RequiresPermission(Manifest.permission.UPDATE_FONTS)
+    public CustomFontRuntimeConfig getCustomFontRuntimeConfig() {
+        enforceCustomFontAccess();
+        final long token = Binder.clearCallingIdentity();
+        try {
+            synchronized (mUpdatableFontDirLock) {
+                int baseVersion = mUpdatableFontDir == null ? 0
+                        : mUpdatableFontDir.getConfigVersion();
+                if (mRuntimeConfig == null) {
+                    FontConfig base = getBaseFontConfig();
+                    FontConfig config = getSystemFontConfig();
+                    mRuntimeConfig = new CustomFontRuntimeConfig(mRuntimeGeneration,
+                            mCustomFontStore.activeId(), config,
+                            CustomFontConfigBuilder.targetFamilies(base, customFontTargets())
+                                    .toArray(new String[0]));
+                } else if (mRuntimeConfig.getFontConfig().getConfigVersion() != baseVersion) {
+                    // A trusted provider updated the fallback set. Recompose the same live
+                    // selection against its new files instead of serving a stale FontConfig.
+                    FontConfig base = getBaseFontConfig();
+                    String id = mRuntimeConfig.getSelectedId();
+                    CustomFontRuntimeConfig next = new CustomFontRuntimeConfig(
+                            mRuntimeGeneration + 1, id, customFontConfig(base, id),
+                            CustomFontConfigBuilder.targetFamilies(base, customFontTargets())
+                                    .toArray(new String[0]));
+                    mRuntimeConfig = next;
+                    mRuntimeGeneration = next.getGeneration();
+                }
+                return mRuntimeConfig;
+            }
+        } catch (IOException e) {
+            throw customFontError(e);
+        } finally {
+            Binder.restoreCallingIdentity(token);
         }
     }
 
@@ -514,15 +566,40 @@ public final class FontManagerService extends IFontManager.Stub {
         final long token = Binder.clearCallingIdentity();
         try {
             synchronized (mUpdatableFontDirLock) {
-                // Validate the entire candidate map before persisting a next-boot selection.
-                // It is deliberately not published to currently running processes.
-                SharedMemory candidate = serializeFontMap(customFontConfig(getBaseFontConfig(), id));
+                if (id.equals(mCustomFontStore.selectedId())) return;
+                FontConfig base = getBaseFontConfig();
+                FontConfig config = customFontConfig(base, id);
+                // Validate before persistence/publication. Never change the boot SharedMemory map.
+                SharedMemory candidate = serializeFontMap(config);
                 if (candidate == null) throw new IOException("Cannot serialize selected font");
                 candidate.close();
+                CustomFontRuntimeConfig next = new CustomFontRuntimeConfig(
+                        mRuntimeGeneration + 1, id, config,
+                        CustomFontConfigBuilder.targetFamilies(base, customFontTargets())
+                                .toArray(new String[0]));
                 mCustomFontStore.select(id);
+                mRuntimeConfig = next;
+                mRuntimeGeneration = next.getGeneration();
             }
+            // Never dispatch callbacks while holding the font lock. A delayed/out-of-order
+            // notification is harmless: clients always fetch the latest coherent snapshot.
+            notifyCustomFontChanged();
         } catch (IOException e) {
             throw customFontError(e);
+        } finally {
+            Binder.restoreCallingIdentity(token);
+        }
+    }
+
+    private void notifyCustomFontChanged() {
+        final long token = Binder.clearCallingIdentity();
+        try {
+            mContext.sendBroadcastAsUser(new Intent(FontManager.ACTION_CUSTOM_FONT_CHANGED)
+                    .addFlags(Intent.FLAG_RECEIVER_REGISTERED_ONLY), UserHandle.SYSTEM);
+        } catch (RuntimeException e) {
+            // The selection/provider update is already committed. A foreground refresh can
+            // recover a lost notification; do not report the durable operation as rolled back.
+            Slog.w(TAG, "Unable to notify UI font clients", e);
         } finally {
             Binder.restoreCallingIdentity(token);
         }

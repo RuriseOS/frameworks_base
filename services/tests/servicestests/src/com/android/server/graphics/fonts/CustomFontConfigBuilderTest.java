@@ -41,6 +41,19 @@ public class CustomFontConfigBuilderTest {
     }
 
     @Test
+    public void runtimeTargetsIncludeAliasChainsButExcludeProtectedFamiliesAndCycles() {
+        FontConfig base = new FontConfig(List.of(), List.of(
+                new FontConfig.Alias("body", "sans-serif", 400),
+                new FontConfig.Alias("body-medium", "body", 500),
+                new FontConfig.Alias("monospace-ui", "body", 400),
+                new FontConfig.Alias("cycle-a", "cycle-b", 400),
+                new FontConfig.Alias("cycle-b", "cycle-a", 400)), List.of(), List.of(), 0, 0);
+        assertThat(CustomFontConfigBuilder.targetFamilies(base,
+                new String[] {"sans-serif", "monospace", "emoji", "math"}))
+                .containsExactly("sans-serif", "body", "body-medium");
+    }
+
+    @Test
     public void prependsCustomOutlinesAndRetainsLanguageFallbackAndWeightedAliases() {
         FontConfig.FontFamily original = family("/system/fonts/regular.ttf");
         FontConfig.FontFamily cjk = family("/system/fonts/cjk.otf");
