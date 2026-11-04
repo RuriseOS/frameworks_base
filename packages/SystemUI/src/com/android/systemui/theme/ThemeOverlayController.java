@@ -17,6 +17,7 @@
 package com.android.systemui.theme;
 
 import static android.util.TypedValue.TYPE_INT_COLOR_ARGB8;
+import static android.util.TypedValue.TYPE_STRING;
 
 import static com.android.systemui.Flags.hardwareColorStyles;
 import static com.android.systemui.Flags.themeOverlayControllerWakefulnessDeprecation;
@@ -25,13 +26,16 @@ import static com.android.systemui.monet.ColorScheme.GOOGLE_BLUE;
 import static com.android.systemui.theme.ThemeOverlayApplier.COLOR_SOURCE_HOME;
 import static com.android.systemui.theme.ThemeOverlayApplier.COLOR_SOURCE_LOCK;
 import static com.android.systemui.theme.ThemeOverlayApplier.COLOR_SOURCE_PRESET;
+import static com.android.systemui.theme.ThemeOverlayApplier.ICON_SHAPE_OVERLAY_NAME;
 import static com.android.systemui.theme.ThemeOverlayApplier.OVERLAY_CATEGORY_ACCENT_COLOR;
 import static com.android.systemui.theme.ThemeOverlayApplier.OVERLAY_CATEGORY_DYNAMIC_COLOR;
+import static com.android.systemui.theme.ThemeOverlayApplier.OVERLAY_CATEGORY_SHAPE;
 import static com.android.systemui.theme.ThemeOverlayApplier.OVERLAY_CATEGORY_SYSTEM_PALETTE;
 import static com.android.systemui.theme.ThemeOverlayApplier.OVERLAY_CATEGORY_THEME_STYLE;
 import static com.android.systemui.theme.ThemeOverlayApplier.OVERLAY_COLOR_BOTH;
 import static com.android.systemui.theme.ThemeOverlayApplier.OVERLAY_COLOR_INDEX;
 import static com.android.systemui.theme.ThemeOverlayApplier.OVERLAY_COLOR_SOURCE;
+import static com.android.systemui.theme.ThemeOverlayApplier.OVERLAY_ICON_SHAPE_PATH;
 import static com.android.systemui.theme.ThemeOverlayApplier.TIMESTAMP_FIELD;
 
 import android.app.ActivityManager;
@@ -61,6 +65,7 @@ import android.util.ArrayMap;
 import android.util.ArraySet;
 import android.util.Log;
 import android.util.Pair;
+import android.util.PathParser;
 import android.util.SparseArray;
 import android.util.SparseIntArray;
 
@@ -189,6 +194,9 @@ public class ThemeOverlayController implements CoreStartable, Dumpable {
     private boolean mDeferredThemeEvaluation;
     // Determines if we should ignore THEME_CUSTOMIZATION_OVERLAY_PACKAGES setting changes.
     private boolean mSkipSettingChange;
+    // Last applied THEME_CUSTOMIZATION_OVERLAY_PACKAGES without the icon shape, used to apply
+    // shape-only changes without recreating the color overlays.
+    private volatile String mLastThemeSettingWithoutShape;
 
     private final DeviceProvisionedListener mDeviceProvisionedListener =
             new DeviceProvisionedListener() {
@@ -515,6 +523,17 @@ public class ThemeOverlayController implements CoreStartable, Dumpable {
                         if (mSkipSettingChange) {
                             if (DEBUG) Log.d(TAG, "Skipping setting change");
                             mSkipSettingChange = false;
+                            return;
+                        }
+                        final String overlayPackageJson = mSecureSettings.getStringForUser(
+                                Settings.Secure.THEME_CUSTOMIZATION_OVERLAY_PACKAGES, userId);
+                        if (mLastThemeSettingWithoutShape != null
+                                && mLastThemeSettingWithoutShape.equals(
+                                        getThemeSettingWithoutShape(overlayPackageJson))) {
+                            if (DEBUG) Log.d(TAG, "Applying icon shape only");
+                            mThemeManager.applyIconShapeOverlay(
+                                    createIconShapeOverlay(overlayPackageJson), userId,
+                                    getManagedProfiles(userId));
                             return;
                         }
                         reevaluateSystemTheme(true /* forceReload */);
@@ -855,12 +874,10 @@ public class ThemeOverlayController implements CoreStartable, Dumpable {
             categoryToPackage.put(OVERLAY_CATEGORY_DYNAMIC_COLOR, mDynamicOverlay.getIdentifier());
         }
 
-        Set<UserHandle> managedProfiles = new HashSet<>();
-        for (UserInfo userInfo : mUserManager.getEnabledProfiles(currentUser)) {
-            if (userInfo.isProfile()) {
-                managedProfiles.add(userInfo.getUserHandle());
-            }
-        }
+        Set<UserHandle> managedProfiles = getManagedProfiles(currentUser);
+
+        final FabricatedOverlay iconShapeOverlay = createIconShapeOverlay(overlayPackageJson);
+        mLastThemeSettingWithoutShape = getThemeSettingWithoutShape(overlayPackageJson);
 
         final Runnable onCompleteCallback = () -> {
             Log.d(TAG, "ThemeHomeDelay: ThemeOverlayController ready with user "
@@ -887,9 +904,66 @@ public class ThemeOverlayController implements CoreStartable, Dumpable {
             fOverlays[c++] = mDynamicOverlay;
         }
 
-        mThemeManager.applyCurrentUserOverlays(categoryToPackage, fOverlays, currentUser,
-                managedProfiles, onCompleteCallback);
+        mThemeManager.applyCurrentUserOverlays(categoryToPackage, fOverlays, iconShapeOverlay,
+                currentUser, managedProfiles, onCompleteCallback);
 
+    }
+
+    private Set<UserHandle> getManagedProfiles(int currentUser) {
+        Set<UserHandle> managedProfiles = new HashSet<>();
+        for (UserInfo userInfo : mUserManager.getEnabledProfiles(currentUser)) {
+            if (userInfo.isProfile()) {
+                managedProfiles.add(userInfo.getUserHandle());
+            }
+        }
+        return managedProfiles;
+    }
+
+    /**
+     * Returns the theme setting without its icon shape entries, so that shape-only changes can be
+     * told apart from changes that need the color overlays recreated.
+     */
+    private String getThemeSettingWithoutShape(String overlayPackageJson) {
+        if (TextUtils.isEmpty(overlayPackageJson)) {
+            return "";
+        }
+        try {
+            JSONObject object = new JSONObject(overlayPackageJson);
+            object.remove(OVERLAY_ICON_SHAPE_PATH);
+            object.remove(OVERLAY_CATEGORY_SHAPE);
+            return object.toString();
+        } catch (JSONException e) {
+            return overlayPackageJson;
+        }
+    }
+
+    /**
+     * Creates the fabricated overlay replacing the adaptive icon mask, or null when the setting
+     * has no valid icon shape path.
+     */
+    private FabricatedOverlay createIconShapeOverlay(String overlayPackageJson) {
+        if (TextUtils.isEmpty(overlayPackageJson)) {
+            return null;
+        }
+        final String path;
+        try {
+            path = new JSONObject(overlayPackageJson).optString(OVERLAY_ICON_SHAPE_PATH);
+        } catch (JSONException e) {
+            return null;
+        }
+        if (TextUtils.isEmpty(path)) {
+            return null;
+        }
+        try {
+            // An invalid mask would break every AdaptiveIconDrawable, so validate it first.
+            PathParser.createPathFromPathData(path);
+        } catch (RuntimeException e) {
+            Log.w(TAG, "Invalid icon shape path: " + path, e);
+            return null;
+        }
+        FabricatedOverlay overlay = newFabricatedOverlay(ICON_SHAPE_OVERLAY_NAME);
+        overlay.setResourceValue("android:string/config_icon_mask", TYPE_STRING, path, null);
+        return overlay;
     }
 
     @ThemeStyle.Type

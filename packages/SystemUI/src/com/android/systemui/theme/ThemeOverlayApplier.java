@@ -98,6 +98,10 @@ public class ThemeOverlayApplier implements Dumpable {
     @VisibleForTesting
     static final String OVERLAY_CATEGORY_SHAPE =
             "android.theme.customization.adaptive_icon_shape";
+    /* Adaptive icon mask path data, applied through a fabricated overlay. */
+    static final String OVERLAY_ICON_SHAPE_PATH =
+            "android.theme.customization.adaptive_icon_shape_path";
+    static final String ICON_SHAPE_OVERLAY_NAME = "icon_shape";
     @VisibleForTesting
     static final String OVERLAY_CATEGORY_ICON_ANDROID =
             "android.theme.customization.icon_pack.android";
@@ -195,6 +199,7 @@ public class ThemeOverlayApplier implements Dumpable {
      *
      * @param categoryToPackage Overlay packages to be applied
      * @param pendingCreation Overlays yet to be created
+     * @param iconShape Icon shape overlay to apply, or null to remove it
      * @param currentUser Current User ID
      * @param managedProfiles Profiles get overlays
      * @param onComplete Callback for when resources are ready. Runs in the main thread.
@@ -202,6 +207,7 @@ public class ThemeOverlayApplier implements Dumpable {
     public void applyCurrentUserOverlays(
             Map<String, OverlayIdentifier> categoryToPackage,
             FabricatedOverlay[] pendingCreation,
+            FabricatedOverlay iconShape,
             int currentUser,
             Set<UserHandle> managedProfiles,
             Runnable onComplete
@@ -253,6 +259,8 @@ public class ThemeOverlayApplier implements Dumpable {
                 }
             }
 
+            addIconShapeOperations(transaction, iconShape, currentUser, managedProfiles);
+
             try {
                 mOverlayManager.commit(transaction.build());
                 if (onComplete != null) {
@@ -265,6 +273,54 @@ public class ThemeOverlayApplier implements Dumpable {
 
             checkDarkUserOverlays(currentUser, onComplete, isBlackMode);
         });
+    }
+
+    /**
+     * Apply only the icon shape overlay, leaving every other theme overlay untouched so that a
+     * shape change does not recreate the color overlays.
+     *
+     * @param iconShape Icon shape overlay to apply, or null to remove it
+     * @param currentUser Current User ID
+     * @param managedProfiles Profiles get overlays
+     */
+    public void applyIconShapeOverlay(FabricatedOverlay iconShape, int currentUser,
+            Set<UserHandle> managedProfiles) {
+        mBgExecutor.execute(() -> {
+            OverlayManagerTransaction.Builder transaction = getTransactionBuilder();
+            addIconShapeOperations(transaction, iconShape, currentUser, managedProfiles);
+            try {
+                mOverlayManager.commit(transaction.build());
+            } catch (SecurityException | IllegalStateException e) {
+                Log.e(TAG, "Failed to apply icon shape", e);
+            }
+        });
+    }
+
+    @AnyThread
+    private void addIconShapeOperations(OverlayManagerTransaction.Builder transaction,
+            FabricatedOverlay iconShape, int currentUser, Set<UserHandle> managedProfiles) {
+        if (iconShape != null) {
+            final OverlayIdentifier identifier = iconShape.getIdentifier();
+            final boolean firstRegistration =
+                    mOverlayManager.getOverlayInfo(identifier, UserHandle.SYSTEM) == null;
+            transaction.registerFabricatedOverlay(iconShape);
+            setEnabled(transaction, identifier, OVERLAY_CATEGORY_SHAPE, currentUser,
+                    managedProfiles, true, true /* pendingCreation */);
+            if (firstRegistration) {
+                // setEnabled() can't look up the target of an overlay that doesn't exist yet, and
+                // skips the profiles.
+                for (UserHandle userHandle : managedProfiles) {
+                    transaction.setEnabled(identifier, true, userHandle.getIdentifier());
+                }
+            }
+            return;
+        }
+
+        OverlayIdentifier identifier =
+                new OverlayIdentifier(SYSUI_PACKAGE, ICON_SHAPE_OVERLAY_NAME);
+        if (mOverlayManager.getOverlayInfo(identifier, UserHandle.SYSTEM) != null) {
+            transaction.unregisterFabricatedOverlay(identifier);
+        }
     }
 
     private void checkDarkUserOverlays(int currentUser, Runnable onComplete, boolean isBlackMode) {

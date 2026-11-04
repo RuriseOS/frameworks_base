@@ -22,6 +22,7 @@ import com.android.internal.widget.MessagingGroup
 import com.android.internal.widget.MessagingMessage
 import com.android.keyguard.KeyguardUpdateMonitor
 import com.android.keyguard.KeyguardUpdateMonitorCallback
+import com.android.systemui.notifications.content.icon.AppIconProvider
 import com.android.systemui.shade.ShadeDisplayAware
 import com.android.systemui.statusbar.NotificationLockscreenUserManager
 import com.android.systemui.statusbar.NotificationLockscreenUserManager.UserChangedListener
@@ -47,6 +48,7 @@ internal constructor(
     private val mGutsManager: NotificationGutsManager,
     private val mKeyguardUpdateMonitor: KeyguardUpdateMonitor,
     private val colorUpdateLogger: ColorUpdateLogger,
+    private val appIconProvider: AppIconProvider,
 ) : Coordinator, ConfigurationController.ConfigurationListener {
 
     private var mIsSwitchingUser = false
@@ -122,6 +124,9 @@ internal constructor(
 
     override fun onThemeChanged() {
         colorUpdateLogger.logTriggerEvent("VCC.onThemeChanged()")
+        // Cached app icons were drawn with the previous icon mask and theme colors, so drop them
+        // before the notifications are reinflated.
+        appIconProvider.clearCache()
         onDensityOrFontScaleChanged()
     }
 

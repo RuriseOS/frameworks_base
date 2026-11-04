@@ -47,6 +47,11 @@ class AppIconCache(systemClock: SystemClock) : Dumpable {
         drawableCache.purgeUnless { getPackageFromKey(it) in wantedPackages }
     }
 
+    fun clear() {
+        bitmapInfoCache.clear()
+        drawableCache.clear()
+    }
+
     private fun createKey(
         packageName: String,
         userHandle: UserHandle?,

@@ -21,6 +21,7 @@ import androidx.test.filters.SmallTest
 import com.android.keyguard.KeyguardUpdateMonitor
 import com.android.keyguard.KeyguardUpdateMonitorCallback
 import com.android.systemui.SysuiTestCase
+import com.android.systemui.notifications.content.icon.AppIconProvider
 import com.android.systemui.statusbar.NotificationLockscreenUserManager
 import com.android.systemui.statusbar.NotificationLockscreenUserManager.UserChangedListener
 import com.android.systemui.statusbar.notification.ColorUpdateLogger
@@ -59,6 +60,7 @@ class ViewConfigCoordinatorTest : SysuiTestCase() {
     private val gutsManager: NotificationGutsManager = mock()
     private val keyguardUpdateMonitor: KeyguardUpdateMonitor = mock()
     private val colorUpdateLogger: ColorUpdateLogger = mock()
+    private val appIconProvider: AppIconProvider = mock()
 
     @Before
     fun setUp() {
@@ -71,6 +73,7 @@ class ViewConfigCoordinatorTest : SysuiTestCase() {
                 gutsManager,
                 keyguardUpdateMonitor,
                 colorUpdateLogger,
+                appIconProvider,
             )
         coordinator.attach(pipeline)
         userChangedListener = withArgCaptor {

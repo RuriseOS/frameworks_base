@@ -49,4 +49,10 @@ public interface AppIconProvider {
      * happen more frequently than that), they will be purged. This can be done from any thread.
      */
     public fun purgeCache(wantedPackages: Collection<String>)
+
+    /**
+     * Immediately drop every cached icon, e.g. when the icon mask or theme colors change. This can
+     * be done from any thread.
+     */
+    public fun clearCache()
 }
