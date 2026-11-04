@@ -18,6 +18,8 @@
 
 package com.android.settingslib.spa.widget.preference
 
+import android.graphics.drawable.AdaptiveIconDrawable
+import android.graphics.drawable.ColorDrawable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -27,6 +29,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.GenericShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AirplanemodeActive
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -37,6 +40,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.asComposePath
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.tooling.preview.Preview
 import com.android.settingslib.spa.framework.theme.SettingsDimension
@@ -103,10 +107,19 @@ private fun IntroIcon(imageVector: ImageVector?) {
     }
 }
 
+/** Clips app icons to the system adaptive icon shape instead of a fixed circle. */
+private val AppIconShape = GenericShape { size, _ ->
+    val mask =
+        AdaptiveIconDrawable(null, ColorDrawable())
+            .apply { setBounds(0, 0, size.width.toInt(), size.height.toInt()) }
+            .iconMask
+    addPath(mask.asComposePath())
+}
+
 @Composable
 private fun IntroAppIcon(appIcon: @Composable () -> Unit) {
     Box(
-        modifier = Modifier.size(SettingsDimension.itemIconContainerSize).clip(CircleShape),
+        modifier = Modifier.size(SettingsDimension.itemIconContainerSize).clip(AppIconShape),
         contentAlignment = Alignment.Center,
     ) {
         appIcon()
