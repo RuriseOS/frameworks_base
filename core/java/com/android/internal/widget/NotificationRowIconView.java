@@ -16,13 +16,20 @@
 
 package com.android.internal.widget;
 
+import static android.graphics.drawable.AdaptiveIconDrawable.MASK_SIZE;
+
 import android.annotation.IntDef;
 import android.annotation.Nullable;
 import android.content.Context;
+import android.content.res.ColorStateList;
+import android.graphics.Path;
 import android.graphics.Rect;
 import android.graphics.drawable.AdaptiveIconDrawable;
 import android.graphics.drawable.Drawable;
+import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.Icon;
+import android.graphics.drawable.ShapeDrawable;
+import android.graphics.drawable.shapes.PathShape;
 import android.util.AttributeSet;
 import android.util.Log;
 import android.view.RemotableViewMethod;
@@ -103,6 +110,33 @@ public class NotificationRowIconView extends CachingIconView {
     public NotificationRowIconView(Context context, @Nullable AttributeSet attrs, int defStyleAttr,
             int defStyleRes) {
         super(context, attrs, defStyleAttr, defStyleRes);
+    }
+
+    @Override
+    protected void onFinishInflate() {
+        super.onFinishInflate();
+        applyIconShapeToBackground();
+    }
+
+    /** Draws the circular small icon background in the system icon shape instead. */
+    private void applyIconShapeToBackground() {
+        if (!(getBackground() instanceof GradientDrawable)) {
+            return;
+        }
+        final GradientDrawable background = (GradientDrawable) getBackground();
+        if (background.getShape() != GradientDrawable.OVAL) {
+            return;
+        }
+        final Path mask = NotificationIconShape.getIconMask(getResources());
+        if (mask == null) {
+            return;
+        }
+        final ShapeDrawable shape = new ShapeDrawable(new PathShape(mask, MASK_SIZE, MASK_SIZE));
+        final ColorStateList color = background.getColor();
+        if (color != null) {
+            shape.getPaint().setColor(color.getDefaultColor());
+        }
+        setBackground(shape);
     }
 
     /**

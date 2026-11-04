@@ -237,7 +237,8 @@ public class MessagingGroup extends NotificationOptimizedLinearLayout implements
     public void setAvatar(Icon icon) {
         mAvatarIcon = icon;
         if (mShowingAvatar || icon == null) {
-            mAvatarView.setImageIcon(icon);
+            mAvatarView.setImageDrawable(icon == null ? null
+                    : PeopleHelper.getUnmaskedAvatar(icon.loadDrawable(getContext())));
         }
         mAvatarSymbol = "";
         mAvatarName = "";
