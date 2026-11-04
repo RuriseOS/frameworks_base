@@ -35,6 +35,8 @@ import android.app.RemoteInputHistoryItem;
 import android.app.SetNotificationBackgroundColorRefactor;
 import android.content.Context;
 import android.content.res.ColorStateList;
+import android.graphics.Outline;
+import android.graphics.Path;
 import android.graphics.Rect;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
@@ -50,6 +52,7 @@ import android.view.NotificationTopLineView;
 import android.view.RemotableViewMethod;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.ViewOutlineProvider;
 import android.view.ViewTreeObserver;
 import android.view.animation.Interpolator;
 import android.view.animation.PathInterpolator;
@@ -174,6 +177,7 @@ public class ConversationLayout extends FrameLayout
         mConversationIconBadge = findViewById(R.id.conversation_icon_badge);
         mConversationIconBadgeBg = findViewById(R.id.conversation_icon_badge_bg);
         mConversationFacePile = findViewById(R.id.conversation_face_pile);
+        applyIconShapeToBadgeBackground();
 
         if (notificationTransparentBadgeRing()) {
             mConversationIconView.setOutlineProvider(
@@ -286,6 +290,38 @@ public class ConversationLayout extends FrameLayout
     }
 
     /**
+     * Draws the badge background in the system icon shape, matching the badge cutout. The
+     * drawable stays a {@link GradientDrawable} for the importance animation, but is filled as a
+     * rectangle and clipped to the icon mask around its current size.
+     */
+    private void applyIconShapeToBadgeBackground() {
+        if (mConversationIconBadgeBg == null
+                || !(mConversationIconBadgeBg.getDrawable() instanceof GradientDrawable)) {
+            return;
+        }
+        final GradientDrawable bg =
+                (GradientDrawable) mConversationIconBadgeBg.getDrawable().mutate();
+        bg.setShape(GradientDrawable.RECTANGLE);
+        mConversationIconBadgeBg.setOutlineProvider(new ViewOutlineProvider() {
+            @Override
+            public void getOutline(View view, Outline outline) {
+                final int size = bg.getIntrinsicWidth();
+                final float left = (view.getWidth() - size) / 2f;
+                final float top = (view.getHeight() - size) / 2f;
+                final Path mask = NotificationIconShape.getIconMask(view.getResources(), left,
+                        top, left + size, top + size);
+                if (mask != null) {
+                    outline.setPath(mask);
+                } else {
+                    outline.setOval(Math.round(left), Math.round(top),
+                            Math.round(left + size), Math.round(top + size));
+                }
+            }
+        });
+        mConversationIconBadgeBg.setClipToOutline(true);
+    }
+
+    /**
      * Sets this conversation as "important", adding some additional UI treatment.
      */
     @RemotableViewMethod
@@ -343,6 +379,7 @@ public class ConversationLayout extends FrameLayout
                     // Shrink the badge bg so that it doesn't peek behind the animation
                     bg.setSize(baseSize, baseSize);
                     mConversationIconBadgeBg.invalidate();
+                    mConversationIconBadgeBg.invalidateOutline();
                 }
 
                 @Override
@@ -350,6 +387,7 @@ public class ConversationLayout extends FrameLayout
                     // Reset bg back to normal size
                     bg.setSize(bgSize, bgSize);
                     mConversationIconBadgeBg.invalidate();
+                    mConversationIconBadgeBg.invalidateOutline();
                 }
             });
 
@@ -724,11 +762,11 @@ public class ConversationLayout extends FrameLayout
         if (lastIcon == null) {
             lastIcon = mPeopleHelper.createAvatarSymbol(" ", "", mLayoutColor);
         }
-        bottomView.setImageIcon(lastIcon);
+        bottomView.setImageDrawable(resolveAvatarImageForFacePile(lastIcon));
         if (secondLastIcon == null) {
             secondLastIcon = mPeopleHelper.createAvatarSymbol("", "", mLayoutColor);
         }
-        topView.setImageIcon(secondLastIcon);
+        topView.setImageDrawable(resolveAvatarImageForFacePile(secondLastIcon));
     }
 
     private void bindFacePile(@Nullable GroupConversationAvatarData groupConversationAvatarData) {
@@ -1168,10 +1206,10 @@ public class ConversationLayout extends FrameLayout
         final Drawable conversationIconDrawable =
                 tryLoadingSizeRestrictedIconForOneToOne(conversationIcon);
         if (conversationIconDrawable != null) {
-            return conversationIconDrawable;
+            return PeopleHelper.getUnmaskedAvatar(conversationIconDrawable);
         }
         // when size restricted icon loading fails, we fallback to icons load drawable.
-        return loadDrawableFromIcon(conversationIcon);
+        return PeopleHelper.getUnmaskedAvatar(loadDrawableFromIcon(conversationIcon));
     }
 
     @Nullable
@@ -1188,7 +1226,7 @@ public class ConversationLayout extends FrameLayout
      */
     @Nullable
     private Drawable resolveAvatarImageForFacePile(Icon conversationIcon) {
-        return loadDrawableFromIcon(conversationIcon);
+        return PeopleHelper.getUnmaskedAvatar(loadDrawableFromIcon(conversationIcon));
     }
 
     @Nullable

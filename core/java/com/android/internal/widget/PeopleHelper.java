@@ -31,7 +31,12 @@ import android.graphics.Color;
 import android.graphics.Outline;
 import android.graphics.Paint;
 import android.graphics.Path;
+import android.graphics.drawable.AdaptiveIconDrawable;
+import android.graphics.drawable.ColorDrawable;
+import android.graphics.drawable.Drawable;
 import android.graphics.drawable.Icon;
+import android.graphics.drawable.InsetDrawable;
+import android.graphics.drawable.LayerDrawable;
 import android.text.TextUtils;
 import android.util.ArrayMap;
 import android.view.View;
@@ -41,6 +46,7 @@ import com.android.internal.R;
 import com.android.internal.graphics.ColorUtils;
 import com.android.internal.util.ContrastColorUtil;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
@@ -307,6 +313,38 @@ public class PeopleHelper {
     }
 
     /**
+     * Returns an adaptive icon avatar without the system icon mask, so that it fills the circular
+     * avatar view instead of showing the icon shape inside the circle. Other drawables are
+     * returned unchanged.
+     */
+    @Nullable
+    public static Drawable getUnmaskedAvatar(@Nullable Drawable avatar) {
+        if (!(avatar instanceof AdaptiveIconDrawable)) {
+            return avatar;
+        }
+        final AdaptiveIconDrawable icon = (AdaptiveIconDrawable) avatar;
+        // Layers extend past the visible bounds by the extra inset fraction of the bounds on each
+        // side, matching how AdaptiveIconDrawable lays them out.
+        final float outset = -AdaptiveIconDrawable.getExtraInsetFraction();
+        final List<Drawable> layers = new ArrayList<>(3);
+        // AdaptiveIconDrawable fills the area behind its layers with black.
+        layers.add(new ColorDrawable(Color.BLACK));
+        if (icon.getBackground() != null) {
+            layers.add(new InsetDrawable(icon.getBackground(), outset));
+        }
+        if (icon.getForeground() != null) {
+            layers.add(new InsetDrawable(icon.getForeground(), outset));
+        }
+        if (layers.size() == 1) {
+            return avatar;
+        }
+        final LayerDrawable unmasked = new LayerDrawable(layers.toArray(new Drawable[0]));
+        // The insets are reported as negative padding; nesting it would enlarge the foreground.
+        unmasked.setPaddingMode(LayerDrawable.PADDING_MODE_STACK);
+        return unmasked;
+    }
+
+    /**
      * Builds a {@link ViewOutlineProvider} that provides a circular path or a circular path with a
      * smaller circle cut out of the shape. This is primarily for cutting out a shape for the icon
      * badge ring.
@@ -343,9 +381,15 @@ public class PeopleHelper {
 
             private Path getCutoutPath() {
 
-                Path clippedShape = new Path();
-                clippedShape.addOval(mCutout.getLeft(), mCutout.getTop(), mCutout.getRight(),
-                        mCutout.getBottom(), Path.Direction.CW);
+                // Cut out the badge in the system icon shape, matching the app icon it contains.
+                Path clippedShape = NotificationIconShape.getIconMask(mCutout.getResources(),
+                        mCutout.getLeft(), mCutout.getTop(), mCutout.getRight(),
+                        mCutout.getBottom());
+                if (clippedShape == null) {
+                    clippedShape = new Path();
+                    clippedShape.addOval(mCutout.getLeft(), mCutout.getTop(),
+                            mCutout.getRight(), mCutout.getBottom(), Path.Direction.CW);
+                }
 
                 Path cutoutPath = new Path(getBasePath());
                 cutoutPath.op(clippedShape, Path.Op.DIFFERENCE);
