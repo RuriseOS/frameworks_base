@@ -212,6 +212,11 @@ constructor(
         skeletonCache.purgeCache(wantedPackages)
     }
 
+    override fun clearCache() {
+        standardCache.clear()
+        skeletonCache.clear()
+    }
+
     override fun dump(pwOrig: PrintWriter, args: Array<out String>) {
         val pw = pwOrig.asIndenting()
         pw.printSection("standard cache") { standardCache.dump(pw, args) }
