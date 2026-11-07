@@ -534,6 +534,12 @@ public class StatusBarIconView extends AnimatedImageView implements StatusIconDi
                 if (monochrome != null) {
                     return monochrome;
                 }
+                // Tinting the whole adaptive icon would leave a solid mask shape, so the
+                // foreground layer is the closest thing to a silhouette.
+                final Drawable foreground = adaptive.getForeground();
+                if (foreground != null) {
+                    return foreground;
+                }
             }
             return iconDrawable;
         }
