@@ -18,7 +18,9 @@ package com.android.systemui.window.ui
 
 import android.util.Log
 import android.view.Choreographer
+import android.view.SurfaceControl
 import android.view.View
+import android.view.ViewRootImpl
 import androidx.annotation.MainThread
 import com.android.app.tracing.coroutines.TrackTracer
 import com.android.systemui.dagger.SysUISingleton
@@ -82,6 +84,48 @@ class DefaultBlurChoreographer(
     private var wasUpdateScheduledForThisFrame = false
     private var lastScheduledBlurEffect = BlurEffect(radius = 0f, scale = 1.0f)
     private var blurAppliedListener: BlurAppliedListener? = null
+    private var surfaceCallbackTarget: ViewRootImpl? = null
+
+    // The blur radius is a property of the window surface, so a new surface starts without it,
+    // while the same blur value is skipped afterwards. This happens to the bouncer shown while
+    // booting, when the window surface is recreated, so apply the blur again for a new surface.
+    private val surfaceChangedCallback =
+        object : ViewRootImpl.SurfaceChangedCallback {
+            override fun surfaceCreated(t: SurfaceControl.Transaction) = reapplyBlur()
+
+            override fun surfaceReplaced(t: SurfaceControl.Transaction) = reapplyBlur()
+
+            override fun surfaceDestroyed() = Unit
+        }
+
+    init {
+        rootView.addOnAttachStateChangeListener(
+            object : View.OnAttachStateChangeListener {
+                override fun onViewAttachedToWindow(v: View) = registerSurfaceChangedCallback()
+
+                override fun onViewDetachedFromWindow(v: View) {
+                    surfaceCallbackTarget?.removeSurfaceChangedCallback(surfaceChangedCallback)
+                    surfaceCallbackTarget = null
+                }
+            }
+        )
+        if (rootView.isAttachedToWindow) registerSurfaceChangedCallback()
+    }
+
+    private fun registerSurfaceChangedCallback() {
+        val viewRootImpl = rootView.viewRootImpl ?: return
+        if (surfaceCallbackTarget == viewRootImpl) return
+        surfaceCallbackTarget?.removeSurfaceChangedCallback(surfaceChangedCallback)
+        viewRootImpl.addSurfaceChangedCallback(surfaceChangedCallback)
+        surfaceCallbackTarget = viewRootImpl
+    }
+
+    private fun reapplyBlur() {
+        if (wasUpdateScheduledForThisFrame || lastScheduledBlurEffect.radius == 0f) return
+        wasUpdateScheduledForThisFrame = true
+        blurUtils.prepareBlur(lastScheduledBlurEffect.radius.toInt())
+        choreographer.postFrameCallback(newFrameCallback)
+    }
 
     private val newFrameCallback =
         Choreographer.FrameCallback {
