@@ -45,6 +45,9 @@ public class NumPadButton extends AlphaOptimizedImageButton
 
     @Nullable
     private NumPadAnimator mAnimator;
+    // Whether a press animation has started and still needs to contract, so a press that
+    // began before the pad was deactivated still settles.
+    private boolean mIsExpanded;
     private int mOrientation;
     private int mStyleAttr;
     private boolean mIsTransparentMode;
@@ -113,18 +116,32 @@ public class NumPadButton extends AlphaOptimizedImageButton
     @Override
     public boolean onTouchEvent(MotionEvent event) {
         if (lockscreenTimeoutDeactivatePinPad() && !isEnabled()) {
+            contractIfReleased(event);
             return super.onTouchEvent(event);
         }
         switch(event.getActionMasked()) {
             case MotionEvent.ACTION_DOWN:
-                if (mAnimator != null) mAnimator.expand();
+                if (mAnimator != null) {
+                    mAnimator.expand();
+                    mIsExpanded = true;
+                }
                 break;
             case MotionEvent.ACTION_UP:
             case MotionEvent.ACTION_CANCEL:
                 if (mAnimator != null) mAnimator.contract();
+                mIsExpanded = false;
                 break;
         }
         return super.onTouchEvent(event);
+    }
+
+    private void contractIfReleased(MotionEvent event) {
+        int action = event.getActionMasked();
+        if (mIsExpanded && (action == MotionEvent.ACTION_UP
+                || action == MotionEvent.ACTION_CANCEL)) {
+            if (mAnimator != null) mAnimator.contract();
+            mIsExpanded = false;
+        }
     }
 
     /**

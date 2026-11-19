@@ -61,6 +61,9 @@ public class NumPadKey extends ViewGroup implements NumPadAnimationListener, Num
 
     @Nullable
     private NumPadAnimator mAnimator;
+    // Whether a press animation has started and still needs to contract, so a press that
+    // began before the pad was deactivated still settles.
+    private boolean mIsExpanded;
     private int mOrientation;
     @Nullable
     private BouncerHapticPlayer mBouncerHapticPlayer;
@@ -196,19 +199,33 @@ public class NumPadKey extends ViewGroup implements NumPadAnimationListener, Num
     @Override
     public boolean onTouchEvent(MotionEvent event) {
         if (lockscreenTimeoutDeactivatePinPad() && !isEnabled()) {
+            contractIfReleased(event);
             return super.onTouchEvent(event);
         }
         switch(event.getActionMasked()) {
             case MotionEvent.ACTION_DOWN:
                 doHapticKeyClick();
-                if (mAnimator != null && mAnimationsEnabled) mAnimator.expand();
+                if (mAnimator != null && mAnimationsEnabled) {
+                    mAnimator.expand();
+                    mIsExpanded = true;
+                }
                 break;
             case MotionEvent.ACTION_UP:
             case MotionEvent.ACTION_CANCEL:
                 if (mAnimator != null && mAnimationsEnabled) mAnimator.contract();
+                mIsExpanded = false;
                 break;
         }
         return super.onTouchEvent(event);
+    }
+
+    private void contractIfReleased(MotionEvent event) {
+        int action = event.getActionMasked();
+        if (mIsExpanded && (action == MotionEvent.ACTION_UP
+                || action == MotionEvent.ACTION_CANCEL)) {
+            if (mAnimator != null) mAnimator.contract();
+            mIsExpanded = false;
+        }
     }
 
     @Override
