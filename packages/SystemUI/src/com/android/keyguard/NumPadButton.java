@@ -33,9 +33,7 @@ import android.view.accessibility.AccessibilityNodeInfo;
 import androidx.annotation.DrawableRes;
 import androidx.annotation.Nullable;
 
-import com.android.systemui.Flags;
 import com.android.systemui.bouncer.shared.constants.PinBouncerConstants.Color;
-import com.android.systemui.bouncer.ui.BouncerColors;
 import com.android.systemui.res.R;
 import com.android.systemui.util.ColorUtilKt;
 
@@ -193,15 +191,18 @@ public class NumPadButton extends AlphaOptimizedImageButton
             if (mDefaultDrawable != 0) {
                 setImageResource(mDefaultDrawable);
             }
-            Drawable bgDrawable = getContext().getDrawable(R.drawable.num_pad_key_background);
-            if (Flags.bouncerUiRevamp2() && bgDrawable != null) {
-                int bgColor = BouncerColors.pinActionBg(getContext());
-                bgDrawable.setTint(bgColor);
-            }
-            setBackground(bgDrawable);
+            // NumPadAnimator#reloadColors sets the action background color. Tinting it with the
+            // same translucent color as well would multiply the alpha and hide the background.
+            setBackground(getContext().getDrawable(R.drawable.num_pad_key_background));
         }
         setupAnimator();
         reloadColors();
+        if (lockscreenTimeoutDeactivatePinPad() && mAnimator != null) {
+            // The new animator starts without the enabled state, so match it to the rest of the
+            // pad, which may be deactivated while this switch happens.
+            setAlpha(isEnabled() ? 1f : DISABLED_FOREGROUND_ALPHA,
+                    isEnabled() ? 1f : DISABLED_BACKGROUND_ALPHA);
+        }
         requestLayout();
     }
 
