@@ -88,6 +88,7 @@ constructor(
                 )
             },
             onFinish = { blurConfig.minBlurRadiusPx },
+            onCancel = { blurConfig.minBlurRadiusPx },
         )
 
     override val notificationBlurRadius: Flow<Float> =

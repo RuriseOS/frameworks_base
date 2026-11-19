@@ -78,6 +78,7 @@ constructor(
                 )
             },
             onFinish = { blurConfig.minBlurRadiusPx },
+            onCancel = { blurConfig.minBlurRadiusPx },
         )
     override val notificationBlurRadius: Flow<Float> =
         transitionAnimation.immediatelyTransitionTo(0.0f)

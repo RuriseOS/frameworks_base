@@ -128,5 +128,14 @@ constructor(private val blurConfig: BlurConfig, animationFlow: KeyguardTransitio
                     )
                 }
             },
+            // A short transition, like the bouncer shown while booting, may finish without a step
+            // at the end, so settle on the final blur like AlternateBouncerToPrimaryBouncer.
+            onFinish = { isShadeExpanded ->
+                if (isShadeExpanded && !Flags.notificationShadeBlur()) {
+                    blurConfig.minBlurRadiusPx
+                } else {
+                    blurConfig.maxBlurRadiusPx
+                }
+            },
         )
 }
